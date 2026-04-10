@@ -62,12 +62,27 @@ spec:
               memory: 1.5Gi
             requests:
               memory: 256Mi
+              
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.58.0
+          env:
+            - name: REDIS_ADDR
+              value: "redis://localhost:6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: diffusion-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 9121
+              name: metrics
+              
       volumes:
         - name: redis-data
           persistentVolumeClaim:
             claimName: redis-pvc
 ---
-# Service Redis (ClusterIP interne)
+# Service Redis (ClusterIP externe / headless pour metrics)
 apiVersion: v1
 kind: Service
 metadata:
@@ -80,4 +95,7 @@ spec:
     - port: 6379
       targetPort: 6379
       name: redis
+    - port: 9121
+      targetPort: 9121
+      name: metrics
   clusterIP: None   # Headless pour StatefulSet

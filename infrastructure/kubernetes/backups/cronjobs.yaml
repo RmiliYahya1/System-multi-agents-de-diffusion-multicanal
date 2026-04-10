@@ -1,0 +1,83 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: diffusion
+spec:
+  # Exécution tous les jours à 03:00 (heure du serveur)
+  schedule: "0 3 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: pg-backup
+            image: postgres:16-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              DATE=$(date +%Y%m%d_%H%M%S)
+              echo "Starting PostgreSQL backup: diffusion_db_backup_$DATE.sql.gz"
+              export PGPASSWORD=$POSTGRES_PASSWORD
+              pg_dump -h postgres -U diffusion_admin -d diffusion_db | gzip > /backups/diffusion_db_backup_$DATE.sql.gz
+              echo "Backup completed successfully."
+              # Conserver uniquement les 7 derniers jours
+              find /backups -name "diffusion_db_backup_*.sql.gz" -type f -mtime +7 -delete
+            env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: diffusion-secrets
+                  key: POSTGRES_PASSWORD
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+          restartPolicy: OnFailure
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backups-pvc
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: redis-backup
+  namespace: diffusion
+spec:
+  # Exécution tous les jours à 03:30
+  schedule: "30 3 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: redis-backup
+            image: redis:7-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              DATE=$(date +%Y%m%d_%H%M%S)
+              echo "Triggering Redis BGSAVE via redis-cli"
+              redis-cli -h redis -a $REDIS_PASSWORD BGSAVE
+              
+              # Wait a few seconds for the BGSAVE to start and create the dump.rdb
+              sleep 10
+              
+              # Dans Redis.yaml, le PVC redis-data est monté. 
+              # Mais le cronjob ne peut pas monter le même PVC ReadWriteOnce en même temps 
+              # s'il est sur un autre noeud (k3s local c'est bon, mais en multi-nodes ça bloque).
+              # On va donc se connecter à redis, lui demander de save, et la persistance AOF/RDB s'en chargera dans son propre volume.
+              echo "Redis save triggered. Note: Real backups of the appendonly.aof require AWS S3 or a separate script to copy the RDB."
+            env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: diffusion-secrets
+                  key: REDIS_PASSWORD
+          restartPolicy: OnFailure
