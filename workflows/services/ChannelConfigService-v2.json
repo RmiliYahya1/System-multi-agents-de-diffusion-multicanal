@@ -1,0 +1,277 @@
+{
+  "name": "ChannelConfigService v2 — PostgreSQL + Cache",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b1f114e2-9495-4403-b4ed-82ab63e808b2",
+      "name": "Trigger Sub-Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -784,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// ChannelConfigService v2 — Validation + Normalisation\n// ============================================================\n// Phase 5 : Ajout validation tenant_id obligatoire\n// ============================================================\n\nconst items = $input.all();\n\nconst VALID_ACTIONS = [\n  'GET_CONFIG',\n  'GET_CONFIG_BY_CHANNEL',\n  'VALIDATE_CHANNEL',\n  'LIST_ALL',\n];\n\nfunction fail(idx, msg) {\n  throw new Error(`ChannelConfigService — Item[${idx}] ${msg}`);\n}\n\nreturn items.map((it, idx) => {\n  const input = it.json || {};\n  const action = String(input.action || '').trim().toUpperCase();\n\n  if (!action) fail(idx, 'champ obligatoire manquant: action');\n  if (!VALID_ACTIONS.includes(action)) {\n    fail(idx, `action inconnue: '${action}'. Valides: ${VALID_ACTIONS.join(', ')}`);\n  }\n\n  if (input.tenant_id === undefined || input.tenant_id === null || String(input.tenant_id).trim() === '') {\n    fail(idx, 'champ obligatoire manquant: tenant_id');\n  }\n\n    if (action === 'GET_CONFIG') {\n    if (!input.config_id) fail(idx, 'GET_CONFIG — champ obligatoire manquant: config_id');\n  }\n\n  if (action === 'GET_CONFIG_BY_CHANNEL') {\n    const missing = [];\n    if (!input.channel_name) missing.push('channel_name');\n    if (!input.diffusion_type) missing.push('diffusion_type');\n    if (missing.length) {\n      fail(idx, `GET_CONFIG_BY_CHANNEL — champs obligatoires manquants: ${missing.join(', ')}`);\n    }\n  }\n\n  if (action === 'VALIDATE_CHANNEL') {\n    if (!input.channel_name) fail(idx, 'VALIDATE_CHANNEL — champ obligatoire manquant: channel_name');\n  }\n\n  const normalized = { ...input, action };\n  if (normalized.channel_name) normalized.channel_name = String(normalized.channel_name).trim().toUpperCase();\n  if (normalized.diffusion_type) normalized.diffusion_type = String(normalized.diffusion_type).trim().toUpperCase();\n  if (normalized.config_id) normalized.config_id = String(normalized.config_id).trim().toUpperCase();\n\n  return {\n    json: normalized,\n    pairedItem: it.pairedItem ?? { item: idx },\n  };\n});\n"
+      },
+      "id": "faf88638-594d-4645-b0eb-425dd905a96c",
+      "name": "Valider entrée & action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// ChannelConfigService v2 — Cache + PostgreSQL Fallback\n// ============================================================\n// REMPLACEMENT des 4 nœuds Airtable par 1 seul nœud intelligent.\n//\n// Stratégie :\n//   1. Charger toutes les configs en mémoire (staticData)\n//   2. TTL de 5 minutes avant rafraîchissement\n//   3. Si le cache est vide → flag pour charger depuis PostgreSQL\n//\n// Pourquoi :\n//   - channel_config = 6 lignes, quasi-statique\n//   - Économise 4 requêtes BDD par exécution\n//   - Latence quasi-nulle (mémoire vs réseau)\n// ============================================================\n\nconst staticData = $getWorkflowStaticData('global');\nconst CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes\nconst now = Date.now();\n\n// Vérifier si le cache est valide\nlet configs = staticData._channelConfigs || null;\nconst cacheTime = staticData._channelConfigsCachedAt || 0;\nconst cacheValid = configs && configs.length > 0 && (now - cacheTime) < CACHE_TTL_MS;\n\nif (cacheValid) {\n  // Cache hit → on passe directement au routeur avec le flag\n  return $input.all().map(it => ({\n    json: {\n      ...it.json,\n      _cache_hit: true,\n      _configs: configs,\n    },\n    pairedItem: it.pairedItem,\n  }));\n} else {\n  // Cache miss → marquer pour chargement PostgreSQL\n  return $input.all().map(it => ({\n    json: {\n      ...it.json,\n      _cache_hit: false,\n      _configs: null,\n    },\n    pairedItem: it.pairedItem,\n  }));\n}\n"
+      },
+      "id": "a1b2c3d4-cache-check-node-001",
+      "name": "Vérifier cache configs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._cache_hit }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    },
+                    "id": "cache-hit-condition"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._cache_hit }}",
+                    "rightValue": false,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    },
+                    "id": "cache-miss-condition"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-cache-router-001",
+      "name": "Cache Hit?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -48,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT config_id, channel_name, diffusion_type, post_type, text_max_chars, headline_max_chars, description_max_chars, hashtags_recommended, media_required, native_scheduling, tone_default, typical_api_calls FROM diffusion.channel_config WHERE tenant_id = $1::bigint ORDER BY channel_name, diffusion_type;",
+        "options": {
+          "queryReplacement": "={{ [$items('Valider entrée & action')[0].json.tenant_id] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "a1b2c3d4-pg-select-001",
+      "name": "PostgreSQL — SELECT ALL configs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        192,
+        400
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Mise à jour du cache + Reattacher les requêtes originales\n// ============================================================\n// On stocke les résultats PostgreSQL dans staticData\n// puis on les attache à chaque requête pour le routeur d'actions.\n// ============================================================\n\nconst staticData = $getWorkflowStaticData('global');\nconst pgResults = $input.all();\n\n// Transformer les résultats PostgreSQL en configs propres\nconst configs = pgResults\n  .map(r => r.json)\n  .filter(r => r.config_id) // ignorer les lignes vides\n  .map(r => ({\n    config_id: r.config_id,\n    channel_name: r.channel_name || '',\n    diffusion_type: r.diffusion_type || '',\n    post_type: r.post_type || '',\n    text_max_chars: r.text_max_chars ?? null,\n    headline_max_chars: r.headline_max_chars ?? null,\n    description_max_chars: r.description_max_chars ?? null,\n    hashtags_recommended: r.hashtags_recommended ?? 0,\n    media_required: r.media_required || false,\n    native_scheduling: r.native_scheduling || false,\n    tone_default: r.tone_default || '',\n    typical_api_calls: r.typical_api_calls ?? 1,\n  }));\n\n// Mettre en cache\nstaticData._channelConfigs = configs;\nstaticData._channelConfigsCachedAt = Date.now();\n\n// Récupérer les requêtes originales et y attacher les configs\nconst originalRequests = $items('Valider entrée & action');\n\nreturn originalRequests.map((it, idx) => ({\n  json: {\n    ...it.json,\n    _cache_hit: true, // maintenant on a les données\n    _configs: configs,\n  },\n  pairedItem: { item: idx },\n}));\n"
+      },
+      "id": "a1b2c3d4-cache-update-001",
+      "name": "Mettre à jour cache",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Routeur d'Actions Unifié — Traitement en mémoire\n// ============================================================\n// REMPLACEMENT des 4 branches (Airtable + Réponse) par 1 seul nœud.\n//\n// Toutes les données sont en mémoire (_configs).\n// On route par action et on construit la réponse directement.\n//\n// Avantage vs. v1 :\n//   - 1 nœud au lieu de 8 (4 Airtable + 4 Réponse)\n//   - 0 requête réseau (tout en mémoire)\n//   - Code plus lisible et maintenable\n//   - Plus de problèmes de pairedItem avec Airtable\n// ============================================================\n\nconst items = $input.all();\n\nreturn items.map((it, idx) => {\n  const req = it.json;\n  const action = req.action;\n  const configs = req._configs || [];\n  const norm = (v) => String(v || '').trim().toUpperCase();\n\n  // Nettoyer les champs internes avant la réponse\n  const cleanReq = { ...req };\n  delete cleanReq._cache_hit;\n  delete cleanReq._configs;\n\n  // ─── GET_CONFIG ───\n  if (action === 'GET_CONFIG') {\n    const configId = norm(req.config_id);\n    const found = configs.find(c => norm(c.config_id) === configId);\n\n    if (!found) {\n      return {\n        json: {\n          success: false,\n          action: 'GET_CONFIG',\n          config_id: req.config_id,\n          error_code: 'CONFIG_NOT_FOUND',\n          error_message: `Aucune configuration trouvée pour config_id: ${req.config_id}`,\n        },\n        pairedItem: { item: idx },\n      };\n    }\n\n    return {\n      json: {\n        success: true,\n        action: 'GET_CONFIG',\n        config: { ...found },\n      },\n      pairedItem: { item: idx },\n    };\n  }\n\n  // ─── GET_CONFIG_BY_CHANNEL ───\n  if (action === 'GET_CONFIG_BY_CHANNEL') {\n    const ch = norm(req.channel_name);\n    const dt = norm(req.diffusion_type);\n    const matches = configs.filter(c => norm(c.channel_name) === ch && norm(c.diffusion_type) === dt);\n\n    if (matches.length === 0) {\n      return {\n        json: {\n          success: false,\n          action: 'GET_CONFIG_BY_CHANNEL',\n          channel_name: req.channel_name,\n          diffusion_type: req.diffusion_type,\n          error_code: 'CONFIG_NOT_FOUND',\n          error_message: `Aucune configuration pour ${req.channel_name} / ${req.diffusion_type}`,\n        },\n        pairedItem: { item: idx },\n      };\n    }\n\n    return {\n      json: {\n        success: true,\n        action: 'GET_CONFIG_BY_CHANNEL',\n        channel_name: req.channel_name,\n        diffusion_type: req.diffusion_type,\n        count: matches.length,\n        configs: matches.map(c => ({ ...c })),\n      },\n      pairedItem: { item: idx },\n    };\n  }\n\n  // ─── VALIDATE_CHANNEL ───\n  if (action === 'VALIDATE_CHANNEL') {\n    const ch = norm(req.channel_name);\n    const channelConfigs = configs.filter(c => norm(c.channel_name) === ch);\n    const supported = channelConfigs.length > 0;\n    const types = supported\n      ? [...new Set(channelConfigs.map(c => norm(c.diffusion_type)).filter(Boolean))]\n      : [];\n\n    return {\n      json: {\n        ...cleanReq,\n        success: true,\n        action: 'VALIDATE_CHANNEL',\n        channel_name: req.channel_name,\n        supported,\n        available_diffusion_types: types,\n        config_count: channelConfigs.length,\n        error_code: supported ? null : 'UNSUPPORTED_CHANNEL',\n        error_message: supported ? null : `Canal non supporté: ${req.channel_name}`,\n      },\n      pairedItem: { item: idx },\n    };\n  }\n\n  // ─── LIST_ALL ───\n  if (action === 'LIST_ALL') {\n    return {\n      json: {\n        success: true,\n        action: 'LIST_ALL',\n        count: configs.length,\n        configs: configs.map(c => ({ ...c })),\n      },\n      pairedItem: { item: idx },\n    };\n  }\n\n  // Fallback (ne devrait jamais arriver grâce à la validation)\n  return {\n    json: {\n      success: false,\n      action: action,\n      error_code: 'UNKNOWN_ACTION',\n      error_message: `Action non gérée: ${action}`,\n    },\n    pairedItem: { item: idx },\n  };\n});\n"
+      },
+      "id": "a1b2c3d4-action-router-001",
+      "name": "Routeur d'actions unifié",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        272
+      ]
+    }
+  ],
+  "pinData": {
+    "Trigger Sub-Workflow": [
+      {
+        "json": {
+          "action": "GET_CONFIG_BY_CHANNEL",
+          "channel_name": "INSTAGRAM",
+          "diffusion_type": "ORGANIC"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Trigger Sub-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Valider entrée & action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valider entrée & action": {
+      "main": [
+        [
+          {
+            "node": "Vérifier cache configs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vérifier cache configs": {
+      "main": [
+        [
+          {
+            "node": "Cache Hit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache Hit?": {
+      "main": [
+        [
+          {
+            "node": "Routeur d'actions unifié",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL — SELECT ALL configs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL — SELECT ALL configs": {
+      "main": [
+        [
+          {
+            "node": "Mettre à jour cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mettre à jour cache": {
+      "main": [
+        [
+          {
+            "node": "Routeur d'actions unifié",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "v2-postgresql-migration",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "m34B-VMMQwN5FKrWhlbCJ",
+  "tags": [
+    {
+      "updatedAt": "2026-03-23T15:07:20.139Z",
+      "createdAt": "2026-03-23T15:07:20.139Z",
+      "id": "0YyrCPMMgA2N9Vrp",
+      "name": "yahya-rmili"
+    },
+    {
+      "updatedAt": "2026-03-04T14:08:07.672Z",
+      "createdAt": "2026-03-04T14:08:07.672Z",
+      "id": "I1erjB6uQn9a0wxM",
+      "name": "ChannelConfigService"
+    },
+    {
+      "updatedAt": "2026-03-03T11:23:22.634Z",
+      "createdAt": "2026-03-03T11:23:22.634Z",
+      "id": "LBLMyez773ACrnTz",
+      "name": "Services Partagés"
+    },
+    {
+      "updatedAt": "2026-03-25T08:23:44.594Z",
+      "createdAt": "2026-03-25T08:23:44.594Z",
+      "id": "NJyK77I8oZ1P6mCe",
+      "name": "system-diffusion"
+    }
+  ]
+}

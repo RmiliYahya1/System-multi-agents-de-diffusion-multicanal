@@ -1,0 +1,587 @@
+{
+  "name": "JobService v2 — CRUD diffusion_jobs (PostgreSQL)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b9d5da49-f065-4bad-b9c3-efb876827d44",
+      "name": "Trigger Sub-Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -784,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// JobService v2 ? Validation (IDENTIQUE ? v1)\n// ============================================================\n\nconst inputs = $input.all();\n\nconst VALID_ACTIONS = [\n  'CREATE_JOB',\n  'GET_JOB',\n  'UPDATE_JOB',\n  'FIND_BY_REQUEST_ID',\n  'LIST_BY_STATUS'\n];\n\nfunction normAction(a) {\n  return (a || '').toString().trim().toUpperCase();\n}\n\nfunction assert(cond, msg) {\n  if (!cond) throw new Error(msg);\n}\n\nreturn inputs.map((item, idx) => {\n  const input = item.json || {};\n  const action = normAction(input.action);\n\n  assert(action, `JobService ? Champ obligatoire manquant: action (item #${idx})`);\n  assert(input.tenant_id !== undefined && input.tenant_id !== null && String(input.tenant_id).trim() !== '',\n    `JobService ? Champ obligatoire manquant: tenant_id (item #${idx})`);\n  assert(VALID_ACTIONS.includes(action),\n    `JobService ? Action inconnue: '${action}' (item #${idx}). Valides: ${VALID_ACTIONS.join(', ')}`);\n\n  if (action === 'CREATE_JOB') {\n    const required = ['request_id', 'source_agent', 'channel_name', 'credential_ref', 'diffusion_type'];\n    const missing = required.filter(f => !input[f]);\n    assert(missing.length === 0,\n      `JobService CREATE_JOB ? Champs obligatoires manquants (item #${idx}): ${missing.join(', ')}`);\n  }\n\n  if (action === 'GET_JOB') {\n    assert(input.job_id, `JobService GET_JOB ? Champ obligatoire manquant: job_id (item #${idx})`);\n  }\n\n  if (action === 'UPDATE_JOB') {\n    assert(input.job_id, `JobService UPDATE_JOB ? Champ obligatoire manquant: job_id (item #${idx})`);\n    assert(input.fields && typeof input.fields === 'object',\n      `JobService UPDATE_JOB ? Champ obligatoire manquant ou invalide: fields (objet) (item #${idx})`);\n  }\n\n  if (action === 'FIND_BY_REQUEST_ID') {\n    assert(input.request_id, `JobService FIND_BY_REQUEST_ID ? Champ obligatoire manquant: request_id (item #${idx})`);\n  }\n\n  if (action === 'LIST_BY_STATUS') {\n    assert(input.status, `JobService LIST_BY_STATUS ? Champ obligatoire manquant: status (item #${idx})`);\n  }\n\n  return { json: { ...input, action, __req_idx: idx }, pairedItem: { item: idx } };\n});\n"
+      },
+      "id": "14946853-d661-4470-a91b-ae1dc299a4a6",
+      "name": "Valider entrée & action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "CREATE_JOB",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c5df088c"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "GET_JOB",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "66afccb9"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "UPDATE_JOB",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "670570c5"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "FIND_BY_REQUEST_ID",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "d5ce5506"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "LIST_BY_STATUS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "ca103aeb"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d6ba1109-28aa-4204-b951-41d3b8f1ab6b",
+      "name": "Router par action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -336,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// BRANCHE CREATE_JOB v2 — Préparer l'INSERT PostgreSQL\n// ============================================================\n// CHANGEMENTS vs v1 :\n//   - payload reste en objet JS (PostgreSQL JSONB l'accepte tel quel)\n//   - Pas besoin de JSON.stringify le payload\n//   - last_error aussi en JSONB (pas string)\n//   - updated_at géré par trigger (mais on l'envoie quand même\n//     pour cohérence avec created_at)\n// ============================================================\n\nconst inputs = $input.all();\nconst now = new Date();\n\nfunction genJobId() {\n  const year = now.getFullYear();\n  const hex = Array.from({ length: 6 }, () =>\n    Math.floor(Math.random() * 16).toString(16).toUpperCase()\n  ).join('');\n  return `JOB-${year}-${hex}`;\n}\n\nreturn inputs.map((item, idx) => {\n  const input = item.json || {};\n  const job_id = genJobId();\n  const timestamp = now.toISOString();\n\n  let status = 'RECEIVED';\n  if (input.scheduled_at) {\n    const scheduledDate = new Date(input.scheduled_at);\n    if (scheduledDate > new Date()) status = 'SCHEDULED';\n  }\n\n  // Payload en objet (pas string) — JSONB PostgreSQL\n  let payload = input.payload || {};\n  if (typeof payload === 'string') {\n    try { payload = JSON.parse(payload); } catch(e) { payload = {}; }\n  }\n\n  return {\n    json: {\n      job_id,\n      request_id: input.request_id,\n      batch_id: input.batch_id || '',\n      diffusion_id: input.diffusion_id || null,\n      source_agent: input.source_agent,\n      tenant_id: input.tenant_id,\n      client_id: input.client_id || null,\n      campaign_id: input.campaign_id || null,\n      channel_name: input.channel_name,\n      credential_ref: input.credential_ref,\n      diffusion_type: input.diffusion_type,\n      funnel_stage: input.funnel_stage || null,\n      scheduled_at: input.scheduled_at || null,\n      timezone: input.timezone || 'Africa/Casablanca',\n      budget_amount: input.budget_amount || null,\n      budget_currency: input.budget_currency || null,\n      payload: JSON.stringify(payload),\n      status,\n      retry_count: 0,\n      retry_max: input.retry_max || 3,\n      timestamp,\n      // Conserver le contexte pour la réponse\n      __req_idx: input.__req_idx ?? idx,\n      __original_input: input,\n    },\n    pairedItem: { item: item.pairedItem?.item ?? idx }\n  };\n});\n"
+      },
+      "id": "a598ac15-7a3f-4894-83ef-b0f90625e20b",
+      "name": "Préparer CREATE_JOB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO diffusion.jobs (\n  job_id, request_id, batch_id, diffusion_id, source_agent,\n  tenant_id, client_id, campaign_id, channel_name, credential_ref, diffusion_type,\n  funnel_stage, scheduled_at, timezone, budget_amount, budget_currency,\n  payload, status, retry_count, retry_max\n) VALUES (\n  $1, $2, $3, $4::bigint, $5,\n  $6::bigint, $7::bigint, $8::bigint, $9, $10, $11,\n  $12, $13::timestamptz, $14, $15::numeric, $16,\n  $17::jsonb, $18, $19::smallint, $20::smallint\n)\nRETURNING job_id, status, created_at;",
+        "options": {
+          "queryReplacement": "={{ [$json.job_id, $json.request_id, $json.batch_id, $json.diffusion_id, $json.source_agent, $json.tenant_id, $json.client_id, $json.campaign_id, $json.channel_name, $json.credential_ref, $json.diffusion_type, $json.funnel_stage, $json.scheduled_at, $json.timezone, $json.budget_amount, $json.budget_currency, $json.payload, $json.status, $json.retry_count, $json.retry_max] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-insert-job-001",
+      "name": "PostgreSQL — INSERT job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Réponse CREATE_JOB v2 (PostgreSQL)\n// ============================================================\n// CHANGEMENTS vs v1 :\n//   - Plus de airtable_record_id\n//   - Unicité garantie par la BDD (UNIQUE constraint sur job_id\n//     et sur request_id+channel_name) — si doublon, PG lève une\n//     erreur, pas besoin de FIND_BY_REQUEST_ID en amont\n// ============================================================\n\nconst records = $input.all();\nconst allReq = $items('Valider entrée & action').map((it, idx) => ({\n  __req_idx: idx,\n  ...it.json\n}));\nconst reqs = allReq.filter(r => r.action === 'CREATE_JOB');\n\nreturn reqs.map((rq, idx) => {\n  const row = records[idx]?.json || {};\n\n  return {\n    json: {\n      ...rq,\n      success: true,\n      action: 'CREATE_JOB',\n      job_id: row.job_id || 'UNKNOWN',\n      status: row.status || 'UNKNOWN',\n      created_at: row.created_at || new Date().toISOString(),\n    },\n    pairedItem: { item: rq.__req_idx }\n  };\n});\n"
+      },
+      "id": "f2600fd6-711f-41ef-893e-cc7c098a03d1",
+      "name": "Réponse CREATE_JOB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT job_id, request_id, batch_id, diffusion_id, source_agent, tenant_id, client_id, campaign_id, channel_name, credential_ref, diffusion_type, funnel_stage, scheduled_at, timezone, budget_amount, budget_currency, payload, status, retry_count, retry_max, platform_post_id, last_error, created_at, updated_at FROM diffusion.jobs WHERE job_id = $1 AND tenant_id = $2::bigint;",
+        "options": {
+          "queryReplacement": "={{ [$json.job_id, $json.tenant_id] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-get-job-001",
+      "name": "PostgreSQL — SELECT by job_id",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -112,
+        192
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Réponse GET_JOB v2 (PostgreSQL)\n// ============================================================\n// SIMPLIFICATION vs v1 :\n//   - Plus de rec.fields vs rec (PG retourne plat)\n//   - payload déjà en objet (JSONB, pas besoin de JSON.parse)\n//   - last_error aussi en objet JSONB\n// ============================================================\n\nconst items = $input.all();\nconst allReq = $items('Valider entrée & action').map(i => i.json);\nconst reqs = allReq.filter(r => r.action === 'GET_JOB');\n\nreturn reqs.map((rq, subIdx) => {\n  const row = items[subIdx]?.json;\n\n  if (!row || !row.job_id) {\n    return {\n      json: {\n        success: false,\n        action: 'GET_JOB',\n        error_code: 'JOB_NOT_FOUND',\n        error_message: 'Aucun DiffusionJob trouvé avec ce job_id',\n      },\n      pairedItem: { item: rq.__req_idx },\n    };\n  }\n\n  return {\n    json: {\n      success: true,\n      action: 'GET_JOB',\n      job: {\n        job_id: row.job_id,\n        request_id: row.request_id || '',\n        batch_id: row.batch_id || '',\n        diffusion_id: row.diffusion_id || null,\n        source_agent: row.source_agent || '',\n        tenant_id: row.tenant_id ?? null,\n        client_id: row.client_id || null,\n        campaign_id: row.campaign_id || null,\n        channel_name: row.channel_name || '',\n        credential_ref: row.credential_ref || '',\n        diffusion_type: row.diffusion_type || '',\n        funnel_stage: row.funnel_stage || '',\n        scheduled_at: row.scheduled_at || null,\n        timezone: row.timezone || '',\n        budget_amount: row.budget_amount || null,\n        budget_currency: row.budget_currency || '',\n        payload: row.payload || {},\n        status: row.status || '',\n        retry_count: row.retry_count || 0,\n        retry_max: row.retry_max || 3,\n        platform_post_id: row.platform_post_id || '',\n        last_error: row.last_error || null,\n        created_at: row.created_at || '',\n        updated_at: row.updated_at || '',\n      },\n    },\n    pairedItem: { item: rq.__req_idx },\n  };\n});\n"
+      },
+      "id": "20efe9cb-8ae0-456b-8728-0131be5c403c",
+      "name": "Réponse GET_JOB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// BRANCHE UPDATE_JOB v2 — Construire l'UPDATE SQL dynamique\n// ============================================================\n// SIMPLIFICATION MAJEURE vs v1 :\n//   v1 : Préparer → FIND → Build Payload → UPDATE → Réponse (5 nœuds)\n//   v2 : Build SQL dynamique → PostgreSQL UPDATE → Réponse (3 nœuds)\n//\n// On construit dynamiquement le SET clause en fonction des\n// champs fournis dans `fields`. Seuls les champs présents\n// sont mis à jour (partial update).\n//\n// BONUS :\n//   - updated_at est géré par le trigger PostgreSQL\n//   - payload et last_error sont convertis en JSONB\n//   - Requête paramétrisée (anti-injection)\n// ============================================================\n\nconst inputs = $input.all();\n\nreturn inputs.map((item, idx) => {\n  const input = item.json || {};\n  const fields = { ...(input.fields || {}) };\n  const job_id = input.job_id;\n\n  // Liste des colonnes modifiables\n  const ALLOWED_FIELDS = [\n    'status', 'payload', 'last_error', 'platform_post_id',\n    'retry_count', 'retry_max', 'scheduled_at', 'budget_amount',\n    'budget_currency', 'funnel_stage'\n  ];\n\n  // Construire SET dynamiquement\n  const setClauses = [];\n  const values = [];\n  let paramIdx = 1;\n\n  for (const [key, value] of Object.entries(fields)) {\n    if (!ALLOWED_FIELDS.includes(key)) continue;\n\n    let castSuffix = '';\n    let val = value;\n\n    // Conversions de type pour PostgreSQL\n    if (key === 'payload' || key === 'last_error') {\n      val = typeof value === 'object' ? JSON.stringify(value) : value;\n      castSuffix = '::jsonb';\n    } else if (key === 'retry_count' || key === 'retry_max') {\n      castSuffix = '::smallint';\n    } else if (key === 'scheduled_at') {\n      castSuffix = '::timestamptz';\n    } else if (key === 'budget_amount') {\n      castSuffix = '::numeric';\n    }\n\n    setClauses.push(`${key} = $${paramIdx}${castSuffix}`);\n    values.push(val);\n    paramIdx++;\n  }\n\n  if (setClauses.length === 0) {\n    throw new Error(`JobService UPDATE_JOB — aucun champ modifiable dans fields (item #${idx})`);\n  }\n\n  // job_id est le dernier paramètre pour le WHERE\n  values.push(job_id);\n  values.push(input.tenant_id);\n  const whereParam = `$${paramIdx}`;\n  const tenantParam = `$${paramIdx + 1}`;\n\n  const query = `UPDATE diffusion.jobs SET ${setClauses.join(', ')} WHERE job_id = ${whereParam} AND tenant_id = ${tenantParam}::bigint RETURNING job_id, status, updated_at;`;\n\n  return {\n    json: {\n      _query: query,\n      _values: values,\n      _job_id: job_id,\n      _updated_fields: Object.keys(fields).filter(k => ALLOWED_FIELDS.includes(k)),\n      __req_idx: input.__req_idx ?? idx,\n    },\n    pairedItem: item.pairedItem ?? { item: idx }\n  };\n});\n"
+      },
+      "id": "fc8742e3-6226-46d8-ac1e-a835d3689265",
+      "name": "Construire UPDATE dynamique",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json._query }}",
+        "options": {
+          "queryReplacement": "={{ $json._values }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-update-job-001",
+      "name": "PostgreSQL — UPDATE job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        160,
+        384
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Réponse UPDATE_JOB v2 (PostgreSQL)\n// ============================================================\n\nconst results = $input.all();\nconst buildItems = $items('Construire UPDATE dynamique');\n\nreturn results.map((item, idx) => {\n  const row = item.json || {};\n  const meta = buildItems[idx]?.json || {};\n\n  if (!row.job_id) {\n    return {\n      json: {\n        success: false,\n        action: 'UPDATE_JOB',\n        job_id: meta._job_id || 'UNKNOWN',\n        error_code: 'JOB_NOT_FOUND',\n        error_message: `job_id '${meta._job_id}' introuvable — UPDATE a retourné 0 lignes`,\n      },\n      pairedItem: { item: meta.__req_idx ?? idx },\n    };\n  }\n\n  return {\n    json: {\n      success: true,\n      action: 'UPDATE_JOB',\n      job_id: row.job_id,\n      status: row.status,\n      updated_at: row.updated_at,\n      updated_fields: meta._updated_fields || [],\n    },\n    pairedItem: { item: meta.__req_idx ?? idx },\n  };\n});\n"
+      },
+      "id": "bcd16bb8-8bcb-4fec-9c60-28422a05e534",
+      "name": "Réponse UPDATE_JOB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT job_id, request_id, channel_name, status, created_at FROM diffusion.jobs WHERE request_id = $1 AND tenant_id = $2::bigint;",
+        "options": {
+          "queryReplacement": "={{ [$json.request_id, $json.tenant_id] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-find-request-001",
+      "name": "PostgreSQL — SELECT by request_id",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -112,
+        576
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Réponse FIND_BY_REQUEST_ID v2 (PostgreSQL)\n// ============================================================\n// CHANGEMENT vs v1 :\n//   - PostgreSQL utilise l'index uq_jobs_request_channel → O(log n)\n//   - Airtable faisait un scan complet de la table\n// ============================================================\n\nconst items = $input.all();\nconst allReq = $items('Valider entrée & action').map((it, idx) => ({\n  __req_idx: idx,\n  ...it.json\n}));\nconst reqs = allReq.filter(r => r.action === 'FIND_BY_REQUEST_ID');\n\nreturn reqs.map((rq, subIdx) => {\n  // PostgreSQL peut retourner plusieurs lignes (1 par canal)\n  // On considère qu'il existe un doublon si au moins 1 ligne\n  const rows = items.filter(i => i.json?.request_id === rq.request_id);\n\n  if (rows.length === 0 || !rows[0].json?.job_id) {\n    return {\n      json: {\n        ...rq,\n        success: true,\n        action: 'FIND_BY_REQUEST_ID',\n        exists: false,\n        request_id: rq.request_id,\n      },\n      pairedItem: { item: rq.__req_idx },\n    };\n  }\n\n  const first = rows[0].json;\n\n  return {\n    json: {\n      ...rq,\n      success: true,\n      action: 'FIND_BY_REQUEST_ID',\n      exists: true,\n      request_id: first.request_id,\n      existing_job_id: first.job_id || '',\n      existing_status: first.status || '',\n      existing_channel: first.channel_name || '',\n    },\n    pairedItem: { item: rq.__req_idx },\n  };\n});\n"
+      },
+      "id": "980bb329-f7cd-4d09-ace3-61ae88a9e526",
+      "name": "Réponse FIND_BY_REQUEST_ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT job_id, request_id, channel_name, status, scheduled_at, created_at FROM diffusion.jobs WHERE status = $1 AND tenant_id = $2::bigint ORDER BY created_at DESC LIMIT 200;",
+        "options": {
+          "queryReplacement": "={{ [$json.status, $json.tenant_id] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-list-status-001",
+      "name": "PostgreSQL — SELECT by status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -112,
+        768
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Réponse LIST_BY_STATUS v2 (PostgreSQL)\n// ============================================================\n// BONUS vs v1 :\n//   - LIMIT 200 pour éviter de surcharger la mémoire\n//   - ORDER BY created_at DESC (les plus récents en premier)\n//   - idx_jobs_status rend cette requête O(log n)\n// ============================================================\n\nconst items = $input.all();\nconst allReq = $items('Valider entrée & action').map(i => i.json);\nconst reqs = allReq.filter(r => r.action === 'LIST_BY_STATUS');\n\nreturn reqs.map((rq, subIdx) => {\n  const jobs = items\n    .map(i => i.json)\n    .filter(row => row && row.job_id)\n    .map(row => ({\n      job_id: row.job_id,\n      request_id: row.request_id || '',\n      channel_name: row.channel_name || '',\n      status: row.status || '',\n      scheduled_at: row.scheduled_at || null,\n      created_at: row.created_at || '',\n    }));\n\n  return {\n    json: {\n      success: true,\n      action: 'LIST_BY_STATUS',\n      status_filter: rq.status,\n      count: jobs.length,\n      jobs,\n    },\n    pairedItem: { item: rq.__req_idx },\n  };\n});\n"
+      },
+      "id": "2f4a2ad3-59cf-482c-afb9-70fd63a56007",
+      "name": "Réponse LIST_BY_STATUS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        768
+      ]
+    }
+  ],
+  "pinData": {
+    "Trigger Sub-Workflow": [
+      {
+        "json": {
+          "action": "CREATE_JOB",
+          "request_id": "TEST-XMAS-2026",
+          "diffusion_id": 9001,
+          "source_agent": "AGENT_ADS",
+          "diffusion_type": "ORGANIC",
+          "funnel_stage": "TOFU",
+          "channel_name": "FACEBOOK",
+          "credential_ref": "CRED-META-01",
+          "campaign_id": 100,
+          "client_id": 1,
+          "status": "RECEIVED",
+          "scheduled_at": "2026-12-25T10:00:00.000Z",
+          "timezone": "Africa/Casablanca",
+          "budget_amount": 0,
+          "budget_currency": "MAD",
+          "retry_count": 0,
+          "retry_max": 3,
+          "payload": {
+            "content": {
+              "text": "Ce post ne doit PAS être publié maintenant. Il est planifié pour Noël 2026.",
+              "headline": null,
+              "media": [],
+              "link": null,
+              "hashtags": null,
+              "description": null
+            },
+            "platform_params": {
+              "page_id": "579564268565837",
+              "post_type": "FEED"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Trigger Sub-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Valider entrée & action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valider entrée & action": {
+      "main": [
+        [
+          {
+            "node": "Router par action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router par action": {
+      "main": [
+        [
+          {
+            "node": "Préparer CREATE_JOB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL — SELECT by job_id",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Construire UPDATE dynamique",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL — SELECT by request_id",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL — SELECT by status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer CREATE_JOB": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL — INSERT job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL — INSERT job": {
+      "main": [
+        [
+          {
+            "node": "Réponse CREATE_JOB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL — SELECT by job_id": {
+      "main": [
+        [
+          {
+            "node": "Réponse GET_JOB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construire UPDATE dynamique": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL — UPDATE job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL — UPDATE job": {
+      "main": [
+        [
+          {
+            "node": "Réponse UPDATE_JOB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL — SELECT by request_id": {
+      "main": [
+        [
+          {
+            "node": "Réponse FIND_BY_REQUEST_ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL — SELECT by status": {
+      "main": [
+        [
+          {
+            "node": "Réponse LIST_BY_STATUS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "v2-postgresql-migration",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "MUsyH5sSBRCKj3MOaq1CM",
+  "tags": [
+    {
+      "updatedAt": "2026-03-23T15:07:20.139Z",
+      "createdAt": "2026-03-23T15:07:20.139Z",
+      "id": "0YyrCPMMgA2N9Vrp",
+      "name": "yahya-rmili"
+    },
+    {
+      "updatedAt": "2026-03-03T11:23:22.634Z",
+      "createdAt": "2026-03-03T11:23:22.634Z",
+      "id": "LBLMyez773ACrnTz",
+      "name": "Services Partagés"
+    },
+    {
+      "updatedAt": "2026-03-25T08:23:44.594Z",
+      "createdAt": "2026-03-25T08:23:44.594Z",
+      "id": "NJyK77I8oZ1P6mCe",
+      "name": "system-diffusion"
+    },
+    {
+      "updatedAt": "2026-03-03T15:53:24.294Z",
+      "createdAt": "2026-03-03T15:53:24.294Z",
+      "id": "r3qyz0xH5qCXeCJZ",
+      "name": "JobService"
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "name": "LogService v2 — insert_log_event (PostgreSQL)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "53382f32-d097-4e62-ae6a-7fa22dfd7627",
+      "name": "Trigger Sub-Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        448,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// LogService v2 — Validation + Génération log_id (BATCH)\n// ============================================================\n// CHANGEMENTS vs v1 :\n//   - Supporte le batch (multiple items en entrée)\n//   - Prépare la requête SQL paramétrisée\n//   - Suppression de la dépendance au format Airtable\n// ============================================================\n\nconst items = $input.all();\n\nconst VALID_AGENTS = [\n  'ORCHESTRATOR',\n  'INGESTION_AGENT',\n  'ADAPTATION_AGENT',\n  'PUBLICATION_AGENT',\n  'NOTIFICATION_AGENT',\n  'SYSTEM'\n];\n\nreturn items.map((it, idx) => {\n  const input = it.json || {};\n\n  // --- Extraction ---\n  let agent = input.agent;\n  const event_type = input.event_type;\n  let message = input.message;\n  const job_id = input.job_id || null;\n  const correlation_id = input.correlation_id || null;\n  const tenant_id = input.tenant_id || 1;\n\n  // --- Validation structurelle ---\n  const missing = [];\n  if (!agent) missing.push('agent');\n  if (!event_type) missing.push('event_type');\n\n  if (missing.length > 0) {\n    throw new Error(\n      `LogService — Item[${idx}] Champs critiques manquants: ${missing.join(', ')}`\n    );\n  }\n\n  // --- Message défensif ---\n  if (!message || message.toString().trim() === '') {\n    message = `ALERTE : Événement logué sans message fourni (Type: ${event_type})`;\n  }\n\n  // --- Agent inconnu → fallback SYSTEM ---\n  if (!VALID_AGENTS.includes(agent)) {\n    message = `AGENT INCONNU DÉTECTÉ (${agent}) — Message original: ${message}`;\n    agent = 'SYSTEM';\n  }\n\n  // --- Génération log_id ---\n  const now = new Date();\n  const y = now.getFullYear();\n  const m = String(now.getMonth() + 1).padStart(2, '0');\n  const d = String(now.getDate()).padStart(2, '0');\n  const hex = Array.from({ length: 6 }, () =>\n    Math.floor(Math.random() * 16).toString(16).toUpperCase()\n  ).join('');\n  const log_id = `LOG-${y}${m}${d}-${hex}`;\n\n  // --- Timestamp ISO 8601 ---\n  const timestamp = now.toISOString();\n\n  return {\n    json: {\n      ...input,\n      log_id,\n      job_id,\n      correlation_id,\n      agent,\n      event_type,\n      message,\n      tenant_id,\n      timestamp\n    },\n    pairedItem: { item: idx },\n  };\n});\n"
+      },
+      "id": "dd4f3a47-eb54-438e-b682-422504ae1840",
+      "name": "Valider & Générer log_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO diffusion.log_events (log_id, job_id, correlation_id, agent, event_type, message, tenant_id, timestamp)\nVALUES ($1, $2, $3, $4, $5, $6, $7::bigint, $8::timestamptz)\nRETURNING id, log_id, timestamp;",
+        "options": {
+          "queryReplacement": "={{ [$json.log_id, $json.job_id, $json.correlation_id, $json.agent, $json.event_type, $json.message, $json.tenant_id, $json.timestamp] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-insert-log-001",
+      "name": "PostgreSQL — INSERT log_event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        96
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// LogService v2 — Construire la réponse (PostgreSQL)\n// ============================================================\n// CHANGEMENTS vs v1 :\n//   - Remplace airtable_record_id par db_id (BIGSERIAL PG)\n//   - Gestion d'erreur gracieuse (le log ne doit JAMAIS\n//     bloquer le workflow appelant)\n//   - Supporte le batch\n// ============================================================\n\nconst items = $input.all();\nconst validatedItems = $items('Valider & Générer log_id');\n\nreturn items.map((it, idx) => {\n  const pgResult = it.json;\n  const validated = validatedItems[idx]?.json || {};\n\n  // Si PostgreSQL a retourné une erreur\n  if (pgResult.error || (!pgResult.id && !pgResult.log_id)) {\n    return {\n      json: {\n        ...validated,\n        db_id: null,\n        success: false,\n        error_message: pgResult.error || 'INSERT échoué — cause inconnue',\n      },\n      pairedItem: { item: idx },\n    };\n  }\n\n  return {\n    json: {\n      ...validated,\n      log_id: pgResult.log_id || validated.log_id,\n      timestamp: pgResult.timestamp || validated.timestamp,\n      db_id: pgResult.id || null,\n      success: true,\n    },\n    pairedItem: { item: idx },\n  };\n});\n"
+      },
+      "id": "0787d3b9-25be-4607-87ff-c2931f64d801",
+      "name": "Construire la réponse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        96
+      ]
+    }
+  ],
+  "pinData": {
+    "Trigger Sub-Workflow": [
+      {
+        "json": {
+          "agent": "SYSTEM",
+          "event_type": "TEST_EVENT",
+          "message": "Test LogService v2 — PostgreSQL",
+          "correlation_id": "test-corr-002"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Trigger Sub-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Valider & Générer log_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valider & Générer log_id": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL — INSERT log_event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL — INSERT log_event": {
+      "main": [
+        [
+          {
+            "node": "Construire la réponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "v2-postgresql-migration",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "92zmPSyJ7rnpfq-z7mPFO",
+  "tags": [
+    {
+      "updatedAt": "2026-03-23T15:07:20.139Z",
+      "createdAt": "2026-03-23T15:07:20.139Z",
+      "id": "0YyrCPMMgA2N9Vrp",
+      "name": "yahya-rmili"
+    },
+    {
+      "updatedAt": "2026-03-03T11:23:22.634Z",
+      "createdAt": "2026-03-03T11:23:22.634Z",
+      "id": "LBLMyez773ACrnTz",
+      "name": "Services Partagés"
+    },
+    {
+      "updatedAt": "2026-03-25T08:23:44.594Z",
+      "createdAt": "2026-03-25T08:23:44.594Z",
+      "id": "NJyK77I8oZ1P6mCe",
+      "name": "system-diffusion"
+    },
+    {
+      "updatedAt": "2026-03-03T11:23:22.631Z",
+      "createdAt": "2026-03-03T11:23:22.631Z",
+      "id": "oaUNvEZCc26f7y7Z",
+      "name": "LogService"
+    }
+  ]
+}

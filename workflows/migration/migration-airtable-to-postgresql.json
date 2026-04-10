@@ -1,0 +1,362 @@
+{
+  "name": "Migration Airtable → PostgreSQL (exécuter 1 seule fois)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🔄 Migration Airtable → PostgreSQL\n\n**Exécuter ce workflow UNE SEULE FOIS.**\n\nOrdre d'exécution :\n1. ✅ channel_config — déjà rempli par le seed SQL\n2. 🔄 credentials — migré en premier (FK)\n3. 🔄 diffusion_jobs — migré en second\n4. 🔄 log_events — migré en dernier\n\n**Pré-requis** :\n- PostgreSQL démarré (docker compose up)\n- Credential PostgreSQL configuré dans n8n\n- Les tables sont vides (premier lancement)",
+        "height": 340,
+        "width": 420,
+        "color": 5
+      },
+      "id": "note-migration-001",
+      "name": "Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-900, -100]
+    },
+    {
+      "parameters": {},
+      "id": "trigger-manual-001",
+      "name": "Démarrer la migration",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-440, 300]
+    },
+
+    {
+      "parameters": {
+        "content": "## ÉTAPE 1 — Credentials\nMigré en premier car diffusion_jobs\na une FK vers credentials.",
+        "height": 100,
+        "width": 360,
+        "color": 3
+      },
+      "id": "note-step1",
+      "name": "Note Étape 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, -20]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appMtkZXCRV9cLUdq",
+          "mode": "list",
+          "cachedResultName": "DB Diffusions",
+          "cachedResultUrl": "https://airtable.com/appMtkZXCRV9cLUdq"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl4mS9wkg5CwToDT",
+          "mode": "list",
+          "cachedResultName": "credentials",
+          "cachedResultUrl": "https://airtable.com/appMtkZXCRV9cLUdq/tbl4mS9wkg5CwToDT"
+        },
+        "options": {}
+      },
+      "id": "at-read-creds-001",
+      "name": "Airtable — Lire TOUS les credentials",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [-200, 100],
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "EKqrvhZSno8WwFZD",
+          "name": "yahya's account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Transformer credentials Airtable → format PostgreSQL\n// ============================================================\n\nconst items = $input.all();\nlet migrated = 0;\nlet skipped = 0;\n\nconst results = items\n  .map((it, idx) => {\n    const r = it.json;\n    const f = r.fields || r;\n\n    // Ignorer les records vides\n    if (!f.credential_ref) {\n      skipped++;\n      return null;\n    }\n\n    migrated++;\n\n    return {\n      json: {\n        credential_ref: f.credential_ref,\n        client_id: f.client_id || 0,\n        platform: (f.platform || '').toLowerCase(),\n        access_token: f.access_token || '',\n        refresh_token: f.refresh_token || null,\n        client_app_id: f.client_app_id || null,\n        client_secret: f.client_secret || null,\n        expires_at: f.expires_at || null,\n        created_at: f.created_at || new Date().toISOString(),\n        updated_at: f.updated_at || new Date().toISOString(),\n      },\n      pairedItem: { item: idx },\n    };\n  })\n  .filter(Boolean);\n\nif (results.length === 0) {\n  return [{ json: { _status: 'SKIP', _message: 'Aucun credential à migrer', _migrated: 0, _skipped: skipped } }];\n}\n\nconsole.log(`Credentials: ${migrated} à migrer, ${skipped} ignorés`);\nreturn results;\n"
+      },
+      "id": "transform-creds-001",
+      "name": "Transformer credentials",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, 100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO diffusion.credentials (credential_ref, client_id, platform, access_token, refresh_token, client_app_id, client_secret, expires_at, created_at, updated_at)\nVALUES ($1, $2::bigint, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz)\nON CONFLICT (credential_ref) DO NOTHING\nRETURNING credential_ref;",
+        "options": {
+          "queryReplacement": "={{ [$json.credential_ref, $json.client_id, $json.platform, $json.access_token, $json.refresh_token, $json.client_app_id, $json.client_secret, $json.expires_at, $json.created_at, $json.updated_at] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-insert-creds-001",
+      "name": "PostgreSQL — INSERT credentials",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [280, 100],
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compteur credentials migrés\nconst items = $input.all();\nconst inserted = items.filter(i => i.json?.credential_ref).length;\nconst total = items.length;\n\nreturn [{\n  json: {\n    step: 'CREDENTIALS',\n    status: 'DONE',\n    inserted,\n    total,\n    message: `✅ ${inserted}/${total} credentials migrés vers PostgreSQL`\n  }\n}];\n"
+      },
+      "id": "log-creds-001",
+      "name": "Log — Credentials migrés",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 100]
+    },
+
+    {
+      "parameters": {
+        "content": "## ÉTAPE 2 — Diffusion Jobs\nTable principale. FK vers credentials\ndoit être satisfaite.",
+        "height": 100,
+        "width": 360,
+        "color": 4
+      },
+      "id": "note-step2",
+      "name": "Note Étape 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, 230]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appMtkZXCRV9cLUdq",
+          "mode": "list",
+          "cachedResultName": "DB Diffusions",
+          "cachedResultUrl": "https://airtable.com/appMtkZXCRV9cLUdq"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblPIWYghyDBcCcNL",
+          "mode": "list",
+          "cachedResultName": "diffusion_jobs",
+          "cachedResultUrl": "https://airtable.com/appMtkZXCRV9cLUdq/tblPIWYghyDBcCcNL"
+        },
+        "options": {}
+      },
+      "id": "at-read-jobs-001",
+      "name": "Airtable — Lire TOUS les jobs",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [-200, 350],
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "EKqrvhZSno8WwFZD",
+          "name": "yahya's account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Transformer diffusion_jobs Airtable → format PostgreSQL\n// ============================================================\n// Conversions clés :\n//   - payload : string → JSONB (parse si nécessaire)\n//   - last_error : string → JSONB\n//   - diffusion_id : float → bigint\n//   - budget_amount : number → numeric\n//   - empty strings → null (pour les colonnes nullable)\n// ============================================================\n\nconst items = $input.all();\nlet migrated = 0;\nlet skipped = 0;\n\nconst results = items\n  .map((it, idx) => {\n    const r = it.json;\n    const f = r.fields || r;\n\n    if (!f.job_id) {\n      skipped++;\n      return null;\n    }\n\n    migrated++;\n\n    // Parse payload en objet si c'est un string\n    let payload = f.payload || '{}';\n    if (typeof payload === 'string') {\n      try { payload = JSON.parse(payload); } catch(e) { payload = {}; }\n    }\n\n    // Parse last_error en objet si c'est un string\n    let last_error = f.last_error || null;\n    if (typeof last_error === 'string' && last_error.trim()) {\n      try { last_error = JSON.parse(last_error); } catch(e) {\n        last_error = { raw_message: last_error };\n      }\n    }\n\n    // Nettoyer les empty strings → null\n    const clean = (v) => (v === '' || v === undefined) ? null : v;\n    \n    // Nettoyer le statut (trim les espaces — ex: 'FAILED_LLM ' dans Airtable)\n    const status = (f.status || 'RECEIVED').trim();\n\n    return {\n      json: {\n        job_id: f.job_id,\n        request_id: f.request_id || '',\n        batch_id: f.batch_id || '',\n        diffusion_id: f.diffusion_id ? Math.floor(f.diffusion_id) : null,\n        source_agent: f.source_agent || 'AGENT_ADS',\n        client_id: f.client_id || 0,\n        campaign_id: f.campaign_id ? Math.floor(f.campaign_id) : null,\n        channel_name: (f.channel_name || '').toUpperCase(),\n        credential_ref: f.credential_ref || '',\n        diffusion_type: (f.diffusion_type || 'ORGANIC').toUpperCase(),\n        funnel_stage: clean(f.funnel_stage),\n        scheduled_at: clean(f.scheduled_at),\n        timezone: f.timezone || 'Africa/Casablanca',\n        budget_amount: f.budget_amount || null,\n        budget_currency: clean(f.budget_currency),\n        payload: JSON.stringify(payload),\n        status,\n        retry_count: f.retry_count || 0,\n        retry_max: f.retry_max || 3,\n        platform_post_id: clean(f.platform_post_id),\n        last_error: last_error ? JSON.stringify(last_error) : null,\n        created_at: f.created_at || new Date().toISOString(),\n        updated_at: f.updated_at || new Date().toISOString(),\n      },\n      pairedItem: { item: idx },\n    };\n  })\n  .filter(Boolean);\n\nif (results.length === 0) {\n  return [{ json: { _status: 'SKIP', _message: 'Aucun job à migrer', _migrated: 0, _skipped: skipped } }];\n}\n\nconsole.log(`Jobs: ${migrated} à migrer, ${skipped} ignorés`);\nreturn results;\n"
+      },
+      "id": "transform-jobs-001",
+      "name": "Transformer jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, 350]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO diffusion.jobs (\n  job_id, request_id, batch_id, diffusion_id, source_agent,\n  client_id, campaign_id, channel_name, credential_ref, diffusion_type,\n  funnel_stage, scheduled_at, timezone, budget_amount, budget_currency,\n  payload, status, retry_count, retry_max, platform_post_id, last_error,\n  created_at, updated_at\n) VALUES (\n  $1, $2, $3, $4::bigint, $5,\n  $6::bigint, $7::bigint, $8, $9, $10,\n  $11, $12::timestamptz, $13, $14::numeric, $15,\n  $16::jsonb, $17, $18::smallint, $19::smallint, $20, $21::jsonb,\n  $22::timestamptz, $23::timestamptz\n)\nON CONFLICT (job_id) DO NOTHING\nRETURNING job_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.job_id, $json.request_id, $json.batch_id, $json.diffusion_id, $json.source_agent, $json.client_id, $json.campaign_id, $json.channel_name, $json.credential_ref, $json.diffusion_type, $json.funnel_stage, $json.scheduled_at, $json.timezone, $json.budget_amount, $json.budget_currency, $json.payload, $json.status, $json.retry_count, $json.retry_max, $json.platform_post_id, $json.last_error, $json.created_at, $json.updated_at] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-insert-jobs-001",
+      "name": "PostgreSQL — INSERT jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [280, 350],
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compteur jobs migrés\nconst items = $input.all();\nconst inserted = items.filter(i => i.json?.job_id).length;\nconst errors = items.filter(i => i.json?.error).length;\nconst total = items.length;\n\nreturn [{\n  json: {\n    step: 'DIFFUSION_JOBS',\n    status: 'DONE',\n    inserted,\n    errors,\n    total,\n    message: `✅ ${inserted}/${total} jobs migrés vers PostgreSQL${errors ? ` (${errors} erreurs)` : ''}`\n  }\n}];\n"
+      },
+      "id": "log-jobs-001",
+      "name": "Log — Jobs migrés",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 350]
+    },
+
+    {
+      "parameters": {
+        "content": "## ÉTAPE 3 — Log Events\nTable de volume. Insérés dans\nla partition mensuelle automatiquement.",
+        "height": 100,
+        "width": 360,
+        "color": 6
+      },
+      "id": "note-step3",
+      "name": "Note Étape 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, 480]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appIzez4r53l7mNyu",
+          "mode": "list",
+          "cachedResultName": "BDD Logs",
+          "cachedResultUrl": "https://airtable.com/appIzez4r53l7mNyu"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblQrrtwwmKxgkOcv",
+          "mode": "list",
+          "cachedResultName": "log_events",
+          "cachedResultUrl": "https://airtable.com/appIzez4r53l7mNyu/tblQrrtwwmKxgkOcv"
+        },
+        "options": {}
+      },
+      "id": "at-read-logs-001",
+      "name": "Airtable — Lire TOUS les logs",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [-200, 600],
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "EKqrvhZSno8WwFZD",
+          "name": "yahya's account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Transformer log_events Airtable → format PostgreSQL\n// ============================================================\n// Les logs vont automatiquement dans la bonne partition\n// mensuelle grâce au partitionnement par timestamp.\n// ============================================================\n\nconst items = $input.all();\nlet migrated = 0;\nlet skipped = 0;\n\nconst results = items\n  .map((it, idx) => {\n    const r = it.json;\n    const f = r.fields || r;\n\n    if (!f.log_id && !f.event_type) {\n      skipped++;\n      return null;\n    }\n\n    migrated++;\n\n    // Si pas de log_id, en générer un\n    let log_id = f.log_id;\n    if (!log_id) {\n      const hex = Array.from({ length: 6 }, () =>\n        Math.floor(Math.random() * 16).toString(16).toUpperCase()\n      ).join('');\n      log_id = `LOG-MIGR-${hex}`;\n    }\n\n    // Timestamp : utiliser celui d'Airtable ou le created_at\n    const timestamp = f.timestamp || f.created_at || new Date().toISOString();\n\n    return {\n      json: {\n        log_id,\n        job_id: f.job_id || null,\n        correlation_id: f.correlation_id || null,\n        agent: f.agent || 'SYSTEM',\n        event_type: f.event_type || 'UNKNOWN',\n        message: f.message || '',\n        timestamp,\n      },\n      pairedItem: { item: idx },\n    };\n  })\n  .filter(Boolean);\n\nif (results.length === 0) {\n  return [{ json: { _status: 'SKIP', _message: 'Aucun log à migrer', _migrated: 0, _skipped: skipped } }];\n}\n\nconsole.log(`Logs: ${migrated} à migrer, ${skipped} ignorés`);\nreturn results;\n"
+      },
+      "id": "transform-logs-001",
+      "name": "Transformer logs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, 600]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO diffusion.log_events (log_id, job_id, correlation_id, agent, event_type, message, timestamp)\nVALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)\nON CONFLICT DO NOTHING\nRETURNING log_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.log_id, $json.job_id, $json.correlation_id, $json.agent, $json.event_type, $json.message, $json.timestamp] }}",
+          "nodeVersion": 2.5
+        }
+      },
+      "id": "pg-insert-logs-001",
+      "name": "PostgreSQL — INSERT logs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [280, 600],
+      "credentials": {
+        "postgres": {
+          "id": "TO_CONFIGURE",
+          "name": "Diffusion PostgreSQL"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compteur logs migrés\nconst items = $input.all();\nconst inserted = items.filter(i => i.json?.log_id).length;\nconst total = items.length;\n\nreturn [{\n  json: {\n    step: 'LOG_EVENTS',\n    status: 'DONE',\n    inserted,\n    total,\n    message: `✅ ${inserted}/${total} logs migrés vers PostgreSQL`\n  }\n}];\n"
+      },
+      "id": "log-logs-001",
+      "name": "Log — Logs migrés",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 600]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Rapport final de migration\n// ============================================================\n\nconst credResult = $items('Log — Credentials migrés')[0]?.json || {};\nconst jobResult = $items('Log — Jobs migrés')[0]?.json || {};\nconst logResult = $items('Log — Logs migrés')[0]?.json || {};\n\nconst report = {\n  migration_completed_at: new Date().toISOString(),\n  results: [\n    credResult,\n    jobResult,\n    logResult,\n  ],\n  summary: [\n    credResult.message || 'Credentials: non exécuté',\n    jobResult.message || 'Jobs: non exécuté',\n    logResult.message || 'Logs: non exécuté',\n  ].join('\\n'),\n  next_steps: [\n    '1. Vérifier les données dans pgAdmin (http://localhost:5050)',\n    '2. Configurer le credential PostgreSQL dans n8n',\n    '3. Importer les 4 workflows v2',\n    '4. Tester chaque service indépendamment',\n    '5. Désactiver les anciens workflows Airtable',\n  ],\n};\n\nreturn [{ json: report }];\n"
+      },
+      "id": "report-final-001",
+      "name": "Rapport final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 350]
+    }
+  ],
+  "connections": {
+    "Démarrer la migration": {
+      "main": [
+        [
+          { "node": "Airtable — Lire TOUS les credentials", "type": "main", "index": 0 },
+          { "node": "Airtable — Lire TOUS les jobs", "type": "main", "index": 0 },
+          { "node": "Airtable — Lire TOUS les logs", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Airtable — Lire TOUS les credentials": {
+      "main": [[{ "node": "Transformer credentials", "type": "main", "index": 0 }]]
+    },
+    "Transformer credentials": {
+      "main": [[{ "node": "PostgreSQL — INSERT credentials", "type": "main", "index": 0 }]]
+    },
+    "PostgreSQL — INSERT credentials": {
+      "main": [[{ "node": "Log — Credentials migrés", "type": "main", "index": 0 }]]
+    },
+    "Airtable — Lire TOUS les jobs": {
+      "main": [[{ "node": "Transformer jobs", "type": "main", "index": 0 }]]
+    },
+    "Transformer jobs": {
+      "main": [[{ "node": "PostgreSQL — INSERT jobs", "type": "main", "index": 0 }]]
+    },
+    "PostgreSQL — INSERT jobs": {
+      "main": [[{ "node": "Log — Jobs migrés", "type": "main", "index": 0 }]]
+    },
+    "Airtable — Lire TOUS les logs": {
+      "main": [[{ "node": "Transformer logs", "type": "main", "index": 0 }]]
+    },
+    "Transformer logs": {
+      "main": [[{ "node": "PostgreSQL — INSERT logs", "type": "main", "index": 0 }]]
+    },
+    "PostgreSQL — INSERT logs": {
+      "main": [[{ "node": "Log — Logs migrés", "type": "main", "index": 0 }]]
+    },
+    "Log — Credentials migrés": {
+      "main": [[{ "node": "Rapport final", "type": "main", "index": 0 }]]
+    },
+    "Log — Jobs migrés": {
+      "main": [[{ "node": "Rapport final", "type": "main", "index": 0 }]]
+    },
+    "Log — Logs migrés": {
+      "main": [[{ "node": "Rapport final", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "migration-v1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "migration-airtable-to-pg",
+  "tags": [
+    { "updatedAt": "2026-03-25T08:23:44.594Z", "createdAt": "2026-03-25T08:23:44.594Z", "id": "NJyK77I8oZ1P6mCe", "name": "system-diffusion" }
+  ]
+}

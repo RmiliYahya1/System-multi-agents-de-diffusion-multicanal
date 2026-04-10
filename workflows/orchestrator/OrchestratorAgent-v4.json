@@ -1,0 +1,199 @@
+{
+  "name": "OrchestratorAgent v4 — Orchestration asynchrone (Queue)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/v1/diffusions/batch",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "efd95d43-91a0-4b49-8b9c-cd9d9b5d8e84",
+      "name": "Webhook — Réception batch",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-800, 400],
+      "webhookId": "orchestrator-batch-entry"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validation JWT & extraction tenant_id\nconst input = $input.first().json;\nconst headers = input.headers || {};\nconst authHeader = headers.authorization || headers.Authorization || '';\n\nif (!authHeader.startsWith('Bearer ')) {\n  return [{ json: { _error: true, _error_code: 'UNAUTHORIZED', _error_message: 'JWT requis' } }];\n}\n\nconst token = authHeader.split(' ')[1];\nconst parts = token.split('.');\nif (parts.length < 2) {\n  return [{ json: { _error: true, _error_code: 'INVALID_JWT', _error_message: 'JWT invalide' } }];\n}\n\nlet payload;\ntry {\n  payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());\n} catch (e) {\n  return [{ json: { _error: true, _error_code: 'INVALID_JWT_PAYLOAD', _error_message: 'Payload JWT invalide' } }];\n}\n\nconst tenant_id = payload.tenant_id || payload.sub;\nif (!tenant_id) {\n  return [{ json: { _error: true, _error_code: 'MISSING_TENANT', _error_message: 'tenant_id absent du JWT' } }];\n}\n\nreturn [{ json: { ...input, _tenant_id: String(tenant_id), _jwt_valid: true } }];\n"
+      },
+      "id": "jwt-validate-001",
+      "name": "Valider JWT & tenant",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-680, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// OrchestratorAgent v4 — Initialisation\n// ============================================================\n// Le tenant_id est injecté par le nœud JWT précédent.\n// ============================================================\n\nconst input = $input.first().json;\nlet batch;\nif (Array.isArray(input.body?.batch)) batch = input.body.batch;\nelse if (Array.isArray(input.body?.payload?.batch)) batch = input.body.payload.batch;\nelse if (Array.isArray(input.body)) batch = input.body;\nelse if (Array.isArray(input.batch)) batch = input.batch;\nelse if (Array.isArray(input.payload?.batch)) batch = input.payload.batch;\nelse batch = null;\n\nif (!batch || batch.length === 0) {\n  return [{ json: { _error: true, _error_code: 'EMPTY_OR_MISSING_BATCH', _error_message: 'Batch absent ou vide' } }];\n}\n\nif (!input._tenant_id) {\n  return [{ json: { _error: true, _error_code: 'MISSING_TENANT', _error_message: 'tenant_id introuvable après validation JWT' } }];\n}\n\nconst now = new Date();\nconst hex = Array.from({ length: 6 }, () =>\n  Math.floor(Math.random() * 16).toString(16).toUpperCase()\n).join('');\n\nreturn [{\n  json: {\n    _error: false,\n    _tenant_id: input._tenant_id,\n    _jwt_valid: true,\n    correlation_id: `ORCH-${now.getFullYear()}-${hex}`,\n    source_agent_header: input.headers?.['x-source-agent'] || input.body?.source_agent || 'UNKNOWN',\n    batch,\n    batch_size: batch.length,\n    timestamp: now.toISOString(),\n  }\n}];\n"
+      },
+      "id": "27b803e2-ccf7-412a-94f0-75cd7b61e332",
+      "name": "Initialiser orchestration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-560, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._error }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" },
+              "id": "err-check-001"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6fe26922-a52e-4a9c-b399-692fcb29ebd3",
+      "name": "Route Erreur Init",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-320, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ERROR', error_code: $json._error_code, error_message: $json._error_message }) }}",
+        "options": { "responseCode": 400 }
+      },
+      "id": "aa04f8ca-4206-41bd-a88c-c4c19b6ea909",
+      "name": "Respond 400 Bad Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-80, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// v4 — Préparer le batch pour enqueue dans Redis\n// ============================================================\n\nconst init = $input.first().json;\nconst batch = init.batch;\nconst correlation_id = init.correlation_id;\nconst tenant_id = init._tenant_id;\n\nconst jobs = batch.map((item, idx) => ({\n  ...item,\n  tenant_id,\n  correlation_id,\n  _item_index: idx,\n  _priority: item.strategic?.diffusion_type === 'PAID' ? 1 : 5,\n  _attempts: 3,\n}));\n\nreturn [{\n  json: {\n    correlation_id,\n    tenant_id,\n    batch_size: batch.length,\n    source_agent: init.source_agent_header,\n    timestamp: init.timestamp,\n    jobs,\n  }\n}];\n"
+      },
+      "id": "prep-enqueue-001",
+      "name": "Préparer enqueue batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-80, 520]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://barb-undefensible-dalila.ngrok-free.dev/enqueue-batch/ingestion",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ jobs: $json.jobs }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "http-enqueue-batch-001",
+      "name": "HTTP — Enqueue batch ingestion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// v4 — Construire la réponse 202 Accepted\n// ============================================================\n// CHANGEMENT vs v3 :\n//   v3 : attendait l'ingestion complète pour répondre\n//   v4 : répond immédiatement avec correlation_id + info enqueue\n// ============================================================\n\nconst enqueueResult = $input.first().json;\nconst prep = $('Préparer enqueue batch').first().json;\n\nreturn [{\n  json: {\n    status: 'ACCEPTED',\n    correlation_id: prep.correlation_id,\n    message: `${prep.batch_size} diffusion(s) enqueued pour traitement asynchrone`,\n    payload: {\n      batch_size: prep.batch_size,\n      source_agent: prep.source_agent,\n      queue: 'ingestion',\n      job_ids: enqueueResult.job_ids || [],\n      enqueued_at: enqueueResult.enqueued_at || new Date().toISOString(),\n    },\n    _tracking: {\n      correlation_id: prep.correlation_id,\n      status_endpoint: `/api/v1/diffusions/status/${prep.correlation_id}`,\n      dashboard: 'http://localhost:3002/queues',\n    },\n  }\n}];\n"
+      },
+      "id": "build-response-001",
+      "name": "Construire réponse 202",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 202,
+          "responseHeaders": {
+            "entries": [
+              { "name": "X-Correlation-ID", "value": "={{ $json.correlation_id }}" }
+            ]
+          }
+        }
+      },
+      "id": "respond-202-001",
+      "name": "Respond 202 Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [760, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log fire-and-forget (non bloquant)\nconst prep = $('Préparer enqueue batch').first().json;\n\nreturn [{\n  json: {\n    agent: 'ORCHESTRATOR',\n    event_type: 'ORCHESTRATION_ENQUEUED',\n    message: `Batch de ${prep.batch_size} diffusion(s) enqueued (${prep.source_agent}) → queue:ingestion`,\n    job_id: '',\n    correlation_id: prep.correlation_id,\n    tenant_id: prep.tenant_id,\n  }\n}];\n"
+      },
+      "id": "prep-log-001",
+      "name": "Préparer Log ENQUEUED",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 520]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "92zmPSyJ7rnpfq-z7mPFO",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/92zmPSyJ7rnpfq-z7mPFO",
+          "cachedResultName": "LogService — insert_log_event"
+        },
+        "options": {}
+      },
+      "id": "call-log-001",
+      "name": "Call LogService",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1280, 520]
+    }
+  ],
+  "connections": {
+    "Webhook — Réception batch": {
+      "main": [[{ "node": "Valider JWT & tenant", "type": "main", "index": 0 }]]
+    },
+    "Valider JWT & tenant": {
+      "main": [[{ "node": "Initialiser orchestration", "type": "main", "index": 0 }]]
+    },
+    "Initialiser orchestration": {
+      "main": [[{ "node": "Route Erreur Init", "type": "main", "index": 0 }]]
+    },
+    "Route Erreur Init": {
+      "main": [
+        [{ "node": "Respond 400 Bad Request", "type": "main", "index": 0 }],
+        [{ "node": "Préparer enqueue batch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Préparer enqueue batch": {
+      "main": [[{ "node": "HTTP — Enqueue batch ingestion", "type": "main", "index": 0 }]]
+    },
+    "HTTP — Enqueue batch ingestion": {
+      "main": [[{ "node": "Construire réponse 202", "type": "main", "index": 0 }]]
+    },
+    "Construire réponse 202": {
+      "main": [[{ "node": "Respond 202 Accepted", "type": "main", "index": 0 }]]
+    },
+    "Respond 202 Accepted": {
+      "main": [[{ "node": "Préparer Log ENQUEUED", "type": "main", "index": 0 }]]
+    },
+    "Préparer Log ENQUEUED": {
+      "main": [[{ "node": "Call LogService", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1", "availableInMCP": false },
+  "versionId": "v4-queue-async",
+  "meta": { "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8" },
+  "id": "orchestrator-v4",
+  "tags": [
+    { "id": "0YyrCPMMgA2N9Vrp", "name": "yahya-rmili" },
+    { "id": "6965CIcaGzgR6seO", "name": "OrchestratorAgent" },
+    { "id": "NJyK77I8oZ1P6mCe", "name": "system-diffusion" },
+    { "id": "ReBzMcnTpRRcDrJi", "name": "Agents" }
+  ]
+}

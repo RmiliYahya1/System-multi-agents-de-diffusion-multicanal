@@ -1,0 +1,122 @@
+{
+  "name": "PublicationWorker — Traitement asynchrone publication",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "worker-publication",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-pub-001",
+      "name": "Webhook Worker Publication",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        300
+      ],
+      "webhookId": "worker-publication"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// PublicationWorker — Préparer l'appel au PublicationAgent\n// ============================================================\n// Format attendu par PublicationAgent :\n//   { job_id, correlation_id, action: 'PUBLISH_CONTENT' }\n// ============================================================\n\nconst input = $input.first().json.body || $input.first().json;\n\nreturn [{\n  json: {\n    tenant_id: input.tenant_id || 1,\n    job_id: input.job_id,\n    correlation_id: input.correlation_id || '',\n    action: 'PUBLISH_CONTENT',\n    channel_name: input.channel_name || '',\n    _queue_name: input.queue_name || '',\n    _queue_tenant_id: input.tenant_id,\n    _queue_attempt: input.attempt || 1,\n  }\n}];\n"
+      },
+      "id": "prep-pub-001",
+      "name": "Préparer appel Publication",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "S4phz7f0f00ztW8N",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/S4phz7f0f00ztW8N",
+          "cachedResultName": "PublicationAgent v2 — UC-03 Publier le contenu"
+        },
+        "options": {}
+      },
+      "id": "call-pub-001",
+      "name": "Call PublicationAgent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Analyser résultat du PublicationAgent\n// ============================================================\n// Résultats possibles :\n//   PUBLISHED → succès ✅\n//   FAILED_CREDENTIALS → erreur définitive (pas de retry)\n//   FAILED_PRE_PUBLICATION → erreur définitive\n//   FAILED_PUBLICATION → erreur potentiellement transient (retry)\n//   PUBLICATION_DEFERRED → replanifié (pas de retry immédiat)\n// ============================================================\n\nconst result = $input.first().json;\nconst prep = $('Préparer appel Publication').first().json;\nconst p = result.payload || result;\n\nconst resultStatus = p.result_status || p.status || 'UNKNOWN';\nconst jobId = p.job_id || prep.job_id;\nconst correlation_id = result.correlation_id || prep.correlation_id;\n\n// Erreurs définitives (ne pas retry)\nconst permanentErrors = [\n  'FAILED_CREDENTIALS',\n  'FAILED_PRE_PUBLICATION',\n  'PUBLICATION_DEFERRED',\n];\n\nconst isSuccess = resultStatus === 'PUBLISHED';\nconst isPermanent = permanentErrors.includes(resultStatus);\n\nif (isSuccess) {\n  return [{\n    json: {\n      worker: 'PublicationWorker',\n      status: 'completed',\n      job_id: jobId,\n      correlation_id,\n      result_status: resultStatus,\n      platform_post_id: p.platform_post_id || null,\n      channel_name: prep.channel_name,\n      timestamp: new Date().toISOString(),\n    }\n  }];\n}\n\nif (isPermanent) {\n  // Répondre OK pour que BullMQ ne retente pas\n  return [{\n    json: {\n      worker: 'PublicationWorker',\n      status: 'completed_with_error',\n      job_id: jobId,\n      correlation_id,\n      result_status: resultStatus,\n      error_code: p.error_code || resultStatus,\n      permanent_failure: true,\n      channel_name: prep.channel_name,\n      timestamp: new Date().toISOString(),\n    }\n  }];\n}\n\n// Erreur transient (FAILED_PUBLICATION) → throw pour retry BullMQ\nthrow new Error(`Publication failed (transient): ${resultStatus} — ${p.error_message || 'Unknown error'}`);\n"
+      },
+      "id": "analyze-pub-001",
+      "name": "Analyser résultat Publication",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Worker Publication": {
+      "main": [
+        [
+          {
+            "node": "Préparer appel Publication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer appel Publication": {
+      "main": [
+        [
+          {
+            "node": "Call PublicationAgent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call PublicationAgent": {
+      "main": [
+        [
+          {
+            "node": "Analyser résultat Publication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "worker-publication-v1",
+  "meta": {
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "worker-publication",
+  "tags": [
+    {
+      "id": "NJyK77I8oZ1P6mCe",
+      "name": "system-diffusion"
+    },
+    {
+      "id": "0YyrCPMMgA2N9Vrp",
+      "name": "yahya-rmili"
+    }
+  ]
+}

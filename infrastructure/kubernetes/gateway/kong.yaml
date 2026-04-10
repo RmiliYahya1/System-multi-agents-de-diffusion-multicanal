@@ -1,0 +1,77 @@
+---
+# Deployment Kong
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong
+  namespace: diffusion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kong
+  template:
+    metadata:
+      labels:
+        app: kong
+    spec:
+      containers:
+        - name: kong
+          image: kong:3.6
+          env:
+            - name: KONG_DATABASE
+              value: "off"
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /usr/local/kong/declarative/kong.yml
+            - name: KONG_PROXY_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_ADMIN_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_PROXY_ERROR_LOG
+              value: /dev/stderr
+            - name: KONG_ADMIN_ERROR_LOG
+              value: /dev/stderr
+            - name: KONG_ADMIN_LISTEN
+              value: 0.0.0.0:8001
+          ports:
+            - containerPort: 8000
+              name: proxy
+            - containerPort: 8001
+              name: admin
+          volumeMounts:
+            - name: kong-config
+              mountPath: /usr/local/kong/declarative
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: "500m"
+            requests:
+              memory: 256Mi
+              cpu: "100m"
+      volumes:
+        - name: kong-config
+          configMap:
+            name: kong-config
+---
+# Service Kong
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong
+  namespace: diffusion
+spec:
+  selector:
+    app: kong
+  ports:
+    - name: proxy
+      port: 8000
+      targetPort: 8000
+    - name: admin
+      port: 8001
+      targetPort: 8001

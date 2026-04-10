@@ -1,0 +1,37 @@
+name: Validate Operations
+
+on:
+  pull_request:
+    paths: ['workflows/**', 'infrastructure/**']
+
+jobs:
+  validate-workflows:
+    name: Validate n8n Workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate all workflow JSON files
+        run: |
+          echo "Validating JSON syntax for all workflows..."
+          find workflows/ -name "*.json" | while read f; do
+            echo "Checking $f..."
+            jq empty "$f" && echo "  ✅ OK" || { echo "  ❌ INVALID JSON"; exit 1; }
+          done
+
+  validate-kubernetes:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          wget https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform-linux-amd64.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate YAML resources
+        run: |
+          echo "Validating Kubernetes manifests..."
+          kubeconform -strict -summary -output json infrastructure/kubernetes/

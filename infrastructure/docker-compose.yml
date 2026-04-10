@@ -1,0 +1,252 @@
+# ═══════════════════════════════════════════════════════════════
+# Docker Compose — Système de Diffusion (Phase 2)
+# ═══════════════════════════════════════════════════════════════
+# 
+# Démarrage : docker compose up -d
+# Dashboard : http://localhost:3002/queues (Bull Board)
+# pgAdmin   : http://localhost:5050
+# Arrêt     : docker compose down
+# Reset     : docker compose down -v  (⚠️ supprime les données)
+#
+# ═══════════════════════════════════════════════════════════════
+
+services:
+  # ─── PostgreSQL (Phase 1) ───
+  postgres:
+    image: postgres:16-alpine
+    container_name: diffusion-postgres
+    restart: unless-stopped
+    
+    environment:
+      POSTGRES_DB: diffusion_db
+      POSTGRES_USER: diffusion_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-DiffUs10n_S3cur3_2026!}
+      TZ: Africa/Casablanca
+      PGTZ: Africa/Casablanca
+    
+    ports:
+      - "5433:5432"
+    
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    
+    command: >
+      postgres
+        -c max_connections=100
+        -c shared_buffers=256MB
+        -c work_mem=8MB
+        -c effective_cache_size=768MB
+        -c maintenance_work_mem=128MB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=16MB
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c min_wal_size=1GB
+        -c max_wal_size=4GB
+        -c log_timezone=Africa/Casablanca
+        -c timezone=Africa/Casablanca
+        -c log_min_duration_statement=500
+        -c log_statement=mod
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U diffusion_admin -d diffusion_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.5'
+
+  # ─── pgAdmin (Phase 1) ───
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: diffusion-pgadmin
+    restart: unless-stopped
+    
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-rmiliyahya2@gmail.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_LISTEN_PORT: 5050
+    
+    ports:
+      - "5050:5050"
+    
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ═══════════════════════════════════════════════════════════
+  # PHASE 2 — Message Queue
+  # ═══════════════════════════════════════════════════════════
+
+  # ─── Redis (Message Queue Broker) ───
+  redis:
+    image: redis:7-alpine
+    container_name: diffusion-redis
+    restart: unless-stopped
+    
+    command: >
+      redis-server
+        --maxmemory 256mb
+        --maxmemory-policy noeviction
+        --appendonly yes
+        --save 60 1000
+        --requirepass ${REDIS_PASSWORD:-R3d1s_D1ffus10n_2026!}
+    
+    ports:
+      - "6379:6379"
+    
+    volumes:
+      - redis-data:/data
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-R3d1s_D1ffus10n_2026!}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # ─── Queue Service (BullMQ Bridge → n8n) ───
+  queue-service:
+    build: ./queue-service
+    container_name: diffusion-queue-service
+    restart: unless-stopped
+    
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-R3d1s_D1ffus10n_2026!}
+      N8N_WEBHOOK_BASE_URL: ${N8N_WEBHOOK_BASE_URL:-https://n8n.iaweb.dev}
+      QUEUE_SERVICE_PORT: 3002
+    
+    ports:
+      - "3002:3002"
+    
+    depends_on:
+      redis:
+        condition: service_healthy
+    
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+  # ═══════════════════════════════════════════════════════════
+  # PHASE 3 — Rate Limiting Entrant
+  # ═══════════════════════════════════════════════════════════
+  nginx:
+    image: nginx:alpine
+    container_name: diffusion-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      queue-service:
+        condition: service_started
+
+  # ─── Prometheus (Phase 4 — Collecte des métriques) ───
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: diffusion-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - queue-service
+
+  # ─── Grafana (Phase 4 — Dashboards et Visualisation) ───
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: diffusion-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - postgres
+      - prometheus
+
+  # ═══════════════════════════════════════════════════════════
+  # PHASE 5 — Sécurité & Multi-Tenancy (Option A)
+  # ═══════════════════════════════════════════════════════════
+
+  # ─── Kong API Gateway (Le Vigile d'entrée) ───
+  kong:
+    image: kong:3.6
+    container_name: diffusion-kong
+    restart: unless-stopped
+    environment:
+      # Mode dbless (sans base de données séparée) pour une gestion par fichier config
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    ports:
+      - "8000:8000" # Port d'entrée principal (qui remplacera Nginx pour l'API)
+      - "8001:8001" # Port d'administration interne
+    volumes:
+      - ./kong/kong.yml:/usr/local/kong/declarative/kong.yml:ro
+    depends_on:
+      - queue-service
+
+  # ─── HashiCorp Vault (Le Coffre-Fort) ───
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: diffusion-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK # Nécessaire pour que Vault verrouille la mémoire (sécurité)
+    environment:
+      # En mode dev pour faciliter l'intégration initiale (les données sont en RAM)
+      # Pour la prod pure, on passera en mode "file" ou "postgres" backing
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-V4ult_R00t_T0k3n_2026!}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./scripts:/vault/scripts:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+volumes:
+  pg-data:
+    name: diffusion-pg-data
+  pgadmin-data:
+    name: diffusion-pgadmin-data
+  redis-data:
+    name: diffusion-redis-data
+  prometheus-data:
+    name: diffusion-prometheus-data
+  grafana-data:
+    name: diffusion-grafana-data

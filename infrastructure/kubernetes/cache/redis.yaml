@@ -1,0 +1,83 @@
+---
+# StatefulSet Redis
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: diffusion
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - sh
+            - -c
+            - |
+              redis-server \
+                --maxmemory 1gb \
+                --maxmemory-policy allkeys-lru \
+                --appendonly yes \
+                --save 60 1000 \
+                --requirepass $(REDIS_PASSWORD)
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: diffusion-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+              name: redis
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a $REDIS_PASSWORD ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a $REDIS_PASSWORD ping
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            limits:
+              memory: 1.5Gi
+            requests:
+              memory: 256Mi
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-pvc
+---
+# Service Redis (ClusterIP interne)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: diffusion
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+  clusterIP: None   # Headless pour StatefulSet

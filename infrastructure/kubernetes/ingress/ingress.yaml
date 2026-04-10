@@ -1,0 +1,105 @@
+---
+# Ingress — Point d'entrée unique (remplace Nginx)
+# Docker Desktop expose les NodePort directement
+# L'ingress route vers les bons services
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: diffusion-ingress
+  namespace: diffusion
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+spec:
+  rules:
+    # n8n UI + webhooks (via Kong pour /webhook/)
+    - host: localhost
+      http:
+        paths:
+          - path: /webhook/
+            pathType: Prefix
+            backend:
+              service:
+                name: kong
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: n8n-main
+                port:
+                  number: 5678
+---
+# NodePort Services pour accès direct depuis Windows
+# (complément à l'Ingress pour les outils d'admin)
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n-main-nodeport
+  namespace: diffusion
+spec:
+  type: NodePort
+  selector:
+    app: n8n-main
+  ports:
+    - port: 5678
+      targetPort: 5678
+      nodePort: 30678     # http://localhost:30678
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-nodeport
+  namespace: diffusion
+spec:
+  type: NodePort
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30300     # http://localhost:30300
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: queue-service-nodeport
+  namespace: diffusion
+spec:
+  type: NodePort
+  selector:
+    app: queue-service
+  ports:
+    - port: 3002
+      targetPort: 3002
+      nodePort: 30302     # http://localhost:30302
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-nodeport
+  namespace: diffusion
+spec:
+  type: NodePort
+  selector:
+    app: vault
+  ports:
+    - port: 8200
+      targetPort: 8200
+      nodePort: 30820     # http://localhost:30820
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-nodeport
+  namespace: diffusion
+spec:
+  type: NodePort
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+      nodePort: 30909     # http://localhost:30909

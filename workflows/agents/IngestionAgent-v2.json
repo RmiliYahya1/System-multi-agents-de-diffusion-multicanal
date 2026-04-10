@@ -1,0 +1,892 @@
+{
+  "name": "IngestionAgent V1",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "8fbca9cc-30cc-46c1-a25a-121e2af67d7a",
+      "name": "Trigger Sub-Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1296,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD 2 — Initialiser le batch (CORRIGÉ V2 - Défensif & Thread-Safe)\n// ============================================================\nconst inputs = $input.all();\nconst executionId = $execution.id;\nconst globalData = $getWorkflowStaticData('node');\n\nconst now = new Date();\nconst hex = Array.from({ length: 6 }, () => Math.floor(Math.random() * 16).toString(16).toUpperCase()).join(\"\");\nconst batch_id = `BATCH-${now.getFullYear()}-${hex}`;\nlet correlation_id = `CORR-${now.getFullYear()}-${hex}`;\nlet incoming_message_id = null;\n\nlet batch = [];\nlet fatalError = null;\nlet errorCode = \"INVALID_BATCH\";\n\ntry {\n  if (inputs.length !== 1) throw new Error(`1 seul message batch attendu, ${inputs.length} reçus`);\n  const input = inputs[0].json;\n\n  correlation_id = input.correlation_id || input.message_id || correlation_id;\n  incoming_message_id = input.message_id || null;\n\n  // --- Extraire le batch ---\n  if (input.action === 'PROCESS_BATCH' && Array.isArray(input.payload?.batch)) {\n    batch = input.payload.batch;\n  } else if (Array.isArray(input.payload?.batch)) {\n    batch = input.payload.batch;\n  } else if (Array.isArray(input.batch)) {\n    batch = input.batch;\n  } else if (Array.isArray(input)) {\n    batch = input;\n  } else {\n    throw new Error(\"Aucun batch (array) trouvé dans l'entrée\");\n  }\n\n  if (batch.length === 0) throw new Error(\"Le batch est vide (EMPTY_BATCH)\");\n\n  for (let i = 0; i < batch.length; i++) {\n    if (!batch[i] || typeof batch[i] !== \"object\" || Array.isArray(batch[i])) {\n      throw new Error(`batch[${i}] invalide : objet JSON attendu`);\n    }\n  }\n\n  // --- Vérification multi-campagnes ---\n  const campaignIds = [...new Set(batch.map(item => item?.strategic?.campaign?.campaign_id).filter(v => v !== undefined && v !== null && v !== \"\"))];\n  if (campaignIds.length > 1) {\n    errorCode = \"MULTIPLE_CAMPAIGN_IDS\";\n    throw new Error(`Plusieurs campaign_id détectés (${campaignIds.join(\", \")})`);\n  }\n\n} catch (err) {\n  // 🚨 PATTERN DÉFENSIF : Création de la Pilule Empoisonnée au lieu de crasher\n  fatalError = err.message;\n  batch = [{\n    _fatal_batch_error: true,\n    _error_code: errorCode,\n    _error_message: fatalError,\n    strategic: { request_id: \"BATCH-REJECTED\" } // Pour éviter d'autres erreurs null pointer\n  }];\n}\n\n// Initialisation Thread-Safe pour l'accumulateur\nif (!globalData[executionId]) {\n  globalData[executionId] = { results: [], accepted: 0, rejected: 0 };\n}\nglobalData[executionId].batch_id = batch_id;\nglobalData[executionId].correlation_id = correlation_id;\nglobalData[executionId].incoming_message_id = incoming_message_id;\nglobalData[executionId].total = batch.length; // Sera 1 pour la pilule empoisonnée\n\nreturn [{\n  json: {\n    batch_id,\n    correlation_id,\n    incoming_message_id,\n    total: batch.length,\n    batch,\n    timestamp: now.toISOString(),\n    batch_meta: {\n      campaign_id: fatalError ? null : (batch[0]?.strategic?.campaign?.campaign_id || null)\n    }\n  }\n}];"
+      },
+      "id": "f8a4e8cc-fb58-41e2-9db2-ae651a78c0e8",
+      "name": "Initialiser le batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1040,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Préparer le log BATCH_RECEIVED pour le LogService\nconst data = $input.first().json;\nreturn [{\n  json: {\n    agent: 'INGESTION_AGENT',\n    event_type: 'BATCH_RECEIVED',\n    message: `Batch reçu: ${data.total} diffusion(s), batch_id=${data.batch_id}`,\n    job_id: '',\n    correlation_id: data.correlation_id\n  }\n}];"
+      },
+      "id": "34ddb254-d4c5-45d8-adeb-98eac213c780",
+      "name": "Préparer Log BATCH",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD 5 — Éclater le batch en items individuels\n// ============================================================\n// Lit le batch depuis le noeud 'Initialiser le batch',\n// retourne N items (1 par diffusion), chacun enrichi des métadonnées.\n// ============================================================\n\nconst initData = $('Initialiser le batch').first().json;\nconst batch = initData.batch;\nconst batch_id = initData.batch_id;\nconst correlation_id = initData.correlation_id;\n\nreturn batch.map((item, index) => ({\n  json: {\n    ...item,\n    _batch_id: batch_id,\n    _correlation_id: correlation_id,\n    _item_index: index\n  }\n}));"
+      },
+      "id": "25a28ef8-d928-44cf-aa32-8a89363abab3",
+      "name": "Éclater le batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "c484ea4f-985d-4468-b93f-ece2985ee5ca",
+      "name": "SplitInBatches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        16,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD 6 — Validation & Normalisation\n// ============================================================\n\nconst item = $input.first().json;\nconst batch_id = item._batch_id;\nconst _correlation_id = item._correlation_id;\nconst _item_index = item._item_index;\n\nfunction fail(code, msg) {\n  return [{\n    json: {\n      _struct_valid: false,\n      batch_id,\n      _correlation_id,\n      _item_index,\n      _result: {\n        tenant_id: item.tenant_id,\n        request_id: item.strategic?.request_id || `ITEM-${_item_index}`,\n        status: 'REJECTED_SCHEMA',\n        error_code: code,\n        error_message: msg,\n        job_id: null\n      },\n      _log: {\n        agent: 'INGESTION_AGENT',\n        event_type: 'REJECTED_SCHEMA',\n        message: `Rejet structurel: ${msg} (index=${_item_index})`,\n        job_id: '',\n        correlation_id: _correlation_id\n      }\n    }\n  }];\n}\n\n// 🚨 INTERCEPTION DE LA PILULE EMPOISONNÉE (Erreur globale du batch)\nif (item._fatal_batch_error === true) {\n  return fail(item._error_code, item._error_message);\n}\n\n// --- Suite normale des validations ---\nif (!item.strategic || typeof item.strategic !== 'object') {\n  return fail('MISSING_STRATEGIC', 'Bloc strategic absent ou non-objet');\n}\nif (item.payload === undefined || item.payload === null || typeof item.payload !== 'object' || Array.isArray(item.payload)) {\n  return fail('MISSING_PAYLOAD', 'Bloc payload absent, null, ou type incorrect');\n}\n\nconst s = item.strategic;\n\nif (!s.request_id || typeof s.request_id !== 'string' || s.request_id.trim() === '') {\n  return fail('MISSING_REQUEST_ID', 'request_id absent ou vide');\n}\nif (!s.source_agent || typeof s.source_agent !== 'string') {\n  return fail('MISSING_SOURCE_AGENT', 'source_agent absent');\n}\nif (!s.diffusion_type || typeof s.diffusion_type !== 'string') {\n  return fail('MISSING_DIFFUSION_TYPE', 'diffusion_type absent');\n}\nif (!s.funnel_stage || typeof s.funnel_stage !== 'string') {\n  return fail('MISSING_FUNNEL_STAGE', 'funnel_stage absent');\n}\n\nif (!s.campaign || typeof s.campaign !== 'object') {\n  return fail('MISSING_CAMPAIGN', 'Bloc campaign absent');\n}\nif (s.campaign.campaign_id === undefined || s.campaign.campaign_id === null || s.campaign.campaign_id === '') {\n  return fail('MISSING_CAMPAIGN_ID', 'campaign_id absent');\n}\nif (!s.client || typeof s.client !== 'object') {\n  return fail('MISSING_CLIENT', 'Bloc client absent');\n}\nif (s.client.client_id === undefined || s.client.client_id === null || s.client.client_id === '') {\n  return fail('MISSING_CLIENT_ID', 'client_id absent');\n}\nif (!s.channel || typeof s.channel !== 'object') {\n  return fail('MISSING_CHANNEL', 'Bloc channel absent');\n}\nif (!s.channel.channel_name || typeof s.channel.channel_name !== 'string') {\n  return fail('MISSING_CHANNEL_NAME', 'channel_name absent');\n}\nif (!s.channel.credential_ref || typeof s.channel.credential_ref !== 'string') {\n  return fail('MISSING_CREDENTIAL_REF', 'credential_ref absent dans channel');\n}\nif (!s.budget || typeof s.budget !== 'object') {\n  return fail('MISSING_BUDGET', 'Bloc budget absent');\n}\nif (!s.compliance || typeof s.compliance !== 'object') {\n  return fail('MISSING_COMPLIANCE', 'Bloc compliance absent');\n}\n\nconst request_id = s.request_id.trim();\nconst source_agent = s.source_agent.trim().toUpperCase();\nconst diffusion_type = s.diffusion_type.trim().toUpperCase();\nconst funnel_stage = s.funnel_stage.trim().toUpperCase();\nconst channel_name = s.channel.channel_name.trim().toUpperCase();\nconst credential_ref = s.channel.credential_ref.trim();\nconst client_id = s.client.client_id;\nconst campaign_id = s.campaign.campaign_id;\nconst campaign_name = s.campaign.campaign_name || '';\nconst diffusion_id = s.diffusion_id || null;\n\nlet scheduled_at = null;\nlet timezone = 'Africa/Casablanca';\n\nif (s.schedule && s.schedule.publish_at) {\n  const parsedDate = new Date(s.schedule.publish_at);\n  if (isNaN(parsedDate.getTime())) {\n    return fail('INVALID_SCHEDULE_DATE', 'publish_at invalide');\n  }\n  scheduled_at = parsedDate.toISOString();\n  timezone = (s.schedule.timezone || 'Africa/Casablanca').trim();\n}\n\nconst budget_amount = (s.budget.amount !== undefined && s.budget.amount !== null)\n  ? Number(s.budget.amount)\n  : null;\n\nconst budget_currency = (s.budget.currency || '').trim().toUpperCase();\nconst compliance_validated = s.compliance.validated === true;\nconst payload = item.payload;\n\nreturn [{\n  json: {\n    _struct_valid: true,\n    batch_id,\n    _correlation_id,\n    _item_index,\n    request_id,\n    diffusion_id,\n    source_agent,\n    diffusion_type,\n    funnel_stage,\n    channel_name,\n    credential_ref,\n    client_id,\n    campaign_id,\n    campaign_name,\n    scheduled_at,\n    timezone,\n    budget_amount,\n    budget_currency,\n    compliance_validated,\n    payload,\n    tenant_id: item.tenant_id,\n    action: 'FIND_BY_REQUEST_ID'\n  }\n}];"
+      },
+      "id": "c44feb47-2c5a-4070-b7a6-aadd0a4ea042",
+      "name": "Validation & Normalisation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._struct_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "086a8ed3-a3e0-479c-a5ba-17ef8bf52aa7"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2ce8219f-d2dc-49b6-90ce-51400ed24241",
+      "name": "Route Struct",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        720,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD 10 — Analyser Idempotence + Préparer suite\n// ============================================================\n// Lit le résultat enrichi du JobService FIND_BY_REQUEST_ID.\n// Si doublon : prépare le résultat DUPLICATE_IGNORED.\n// Si nouveau : prépare l'appel ChannelConfigService.\n// ============================================================\n\nconst item = $input.first().json;\nconst isDuplicate = item.exists === true;\n\nif (isDuplicate) {\n  return [{\n    json: {\n      ...item,\n      _is_duplicate: true,\n      _existing_job_id: item.existing_job_id || '',\n      _existing_status: item.existing_status || '',\n      _result: {\n        tenant_id: item.tenant_id,\n        request_id: item.request_id,\n        status: 'DUPLICATE_IGNORED',\n        error_code: 'DUPLICATE_REQUEST_ID',\n        error_message: `request_id déjà existant, job ${item.existing_job_id} retourné`,\n        job_id: item.existing_job_id || null\n      },\n      _log: {\n        agent: 'INGESTION_AGENT',\n        event_type: 'DUPLICATE_IGNORED',\n        message: `${item.request_id} déjà existant, job ${item.existing_job_id} retourné`,\n        job_id: item.existing_job_id || '',\n        correlation_id: item._correlation_id\n      }\n    }\n  }];\n}\n\n// --- NOUVEAU : préparer pour ChannelConfigService ---\nreturn [{\n  json: {\n    ...item,\n    _is_duplicate: false,\n    action: 'VALIDATE_CHANNEL'\n  }\n}];"
+      },
+      "id": "c873e687-85ff-4674-aa60-c9af9b995506",
+      "name": "Analyser Idempotence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._is_duplicate }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "940ce3b7-9d16-4834-bc3e-b28fe1333736"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bbc793ce-015c-407a-ad6f-8c56fd3e2213",
+      "name": "Route Doublon",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD 13 — Analyser Canal + Préparer appel Credential\n// ============================================================\n\nconst item = $input.first().json;\nconst channelSupported = item.supported === true;\n\nreturn [{\n  json: {\n    ...item,\n    _channel_supported: channelSupported,\n    _channel_result: {\n      supported: item.supported,\n      channel_name: item.channel_name\n    },\n    action: 'VALIDATE_CREDENTIAL',\n    credential_ref: item.credential_ref\n  }\n}];"
+      },
+      "id": "53555aa9-03e3-4427-b047-52873ad340c7",
+      "name": "Analyser Canal + Prép. Credential",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2192,
+        -368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD 15 — Validation Métier Complète\n// ============================================================\n\nconst item = $input.first().json;\n\nfunction fail(code, msg) {\n  return [{\n    json: {\n      ...item,\n      _business_valid: false,\n      _result: {\n        tenant_id: item.tenant_id,\n        request_id: item.request_id,\n        status: 'REJECTED_BUSINESS',\n        error_code: code,\n        error_message: msg,\n        job_id: null\n      },\n      _log: {\n        agent: 'INGESTION_AGENT',\n        event_type: 'REJECTED_BUSINESS',\n        message: msg,\n        job_id: '',\n        correlation_id: item._correlation_id\n      }\n    }\n  }];\n}\n\n// 1. Canal supporté\nif (item._channel_supported !== true) {\n  return fail('UNSUPPORTED_CHANNEL', `Canal non supporté: ${item.channel_name}`);\n}\n\n// 2. Credential valide\nif (item.valid !== true) {\n  return fail(\n    item.error_code || 'INVALID_CREDENTIAL',\n    item.error_message || `Credential invalide: ${item.credential_ref}`\n  );\n}\n\n// 3. source_agent autorisé\nconst allowedAgents = ['AGENT_ADS', 'AGENT_MARKETING', 'AGENT_COMMUNITY', 'AGENT_MAILING'];\nif (!allowedAgents.includes(item.source_agent)) {\n  return fail('INVALID_SOURCE_AGENT', `source_agent invalide: ${item.source_agent}`);\n}\n\n// 4. funnel_stage autorisé\nconst allowedFunnelStages = ['TOFU', 'MOFU', 'BOFU'];\nif (!allowedFunnelStages.includes(item.funnel_stage)) {\n  return fail('INVALID_FUNNEL_STAGE', `funnel_stage invalide: ${item.funnel_stage}`);\n}\n\n// 5. diffusion_type autorisé\nconst allowedDiffusionTypes = ['PAID', 'ORGANIC'];\nif (!allowedDiffusionTypes.includes(item.diffusion_type)) {\n  return fail('INVALID_DIFFUSION_TYPE', `diffusion_type invalide: ${item.diffusion_type}`);\n}\n\n// 6. conformité obligatoire\nif (item.compliance_validated !== true) {\n  return fail('COMPLIANCE_NOT_VALIDATED', 'Le contenu n’a pas été validé côté conformité');\n}\n\n// 7. budget obligatoire pour PAID\nif (item.diffusion_type === 'PAID') {\n  if (item.budget_amount === null || isNaN(item.budget_amount) || item.budget_amount <= 0) {\n    return fail('INVALID_BUDGET', 'Budget obligatoire et strictement positif pour une diffusion PAID');\n  }\n  if (!item.budget_currency || item.budget_currency.trim() === '') {\n    return fail('MISSING_BUDGET_CURRENCY', 'Devise obligatoire pour une diffusion PAID');\n  }\n}\n\n// 8. payload minimal\nif (!item.payload || typeof item.payload !== 'object' || Array.isArray(item.payload)) {\n  return fail('INVALID_PAYLOAD', 'Payload invalide');\n}\n\n// Exemple simple : pour content marketing\nif (!item.payload.content || typeof item.payload.content !== 'object') {\n  return fail('MISSING_CONTENT', 'Bloc content absent dans payload');\n}\n\n// 9. OK\nreturn [{\n  json: {\n    ...item,\n    _business_valid: true,\n    action: 'CREATE_JOB'\n  }\n}];"
+      },
+      "id": "3b746d2b-8543-4c7d-89f8-7528207f18bc",
+      "name": "Validation Métier Complète",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2992,
+        -464
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._business_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "612b961b-09ca-4f12-9eeb-1506261f1819"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d1b19f0b-2c41-4edc-9211-c5e84e55bcc0",
+      "name": "Route Métier",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3312,
+        -544
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nreturn [{\n  json: {\n    ...item,\n    _result: {\n      tenant_id: item.tenant_id,\n      request_id: item.request_id,\n      status: item.status || 'JOB_CREATED',\n      error_code: null,\n      error_message: null,\n      job_id: item.job_id || null\n    },\n    _log: {\n      agent: 'INGESTION_AGENT',\n      event_type: 'JOB_CREATED',\n      message: `Job créé avec succès: ${item.job_id}`,\n      job_id: item.job_id || '',\n      correlation_id: item._correlation_id\n    }\n  }\n}];"
+      },
+      "id": "8cd0d9c3-21ba-4148-a719-833042ae3077",
+      "name": "Résultat SUCCÈS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4000,
+        -800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD — Préparer Log Item\n// ============================================================\n\nconst item = $input.first().json;\n\nif (!item._log) {\n  throw new Error(\"IngestionAgent — _log introuvable dans Préparer Log Item\");\n}\n\nreturn [{\n  json: {\n    ...item,                  // on conserve tout le contexte\n    ...item._log              // on expose aussi les champs attendus par LogService\n  }\n}];"
+      },
+      "id": "240c28b2-4d38-4347-abd4-3755eb685ad0",
+      "name": "Préparer Log Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4384,
+        -496
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD — Stocker résultat (CORRIGÉ V2 - Isolation par exécution)\n// ============================================================\n\nconst item = $input.first().json;\nconst result = item._result;\n\nif (!result) {\n  throw new Error(\"IngestionAgent — _result introuvable dans Stocker résultat\");\n}\n\n// 1. On récupère l'ID unique de cette exécution précise\nconst executionId = $execution.id;\nconst globalData = $getWorkflowStaticData('node');\n\n// 2. On crée un tiroir isolé pour cette exécution si ce n'est pas fait\nif (!globalData[executionId]) {\n  globalData[executionId] = {\n    results: [],\n    accepted: 0,\n    rejected: 0\n  };\n}\n\nconst currentRunData = globalData[executionId];\n\n// 3. On range le résultat dans ce tiroir spécifique\ncurrentRunData.results.push(result);\n\nif (\n  result.status === 'REJECTED_SCHEMA' ||\n  result.status === 'REJECTED_BUSINESS' ||\n  result.status === 'DUPLICATE_IGNORED'\n) {\n  currentRunData.rejected += 1;\n} else {\n  currentRunData.accepted += 1;\n}\n\n// On retourne un JSON pour visualiser que tout s'est bien passé\nreturn [{ \n  json: { \n    message: \"Résultat isolé et stocké avec succès\",\n    execution_id: executionId\n  } \n}];"
+      },
+      "id": "7bfa0d68-af26-4f56-beb1-fda6a6ade4ed",
+      "name": "Stocker résultat",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4688,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NOEUD — Construire ACK (CORRIGÉ V2)\n// ============================================================\n\nconst executionId = $execution.id;\nconst globalData = $getWorkflowStaticData('node');\n\n// 1. On récupère les données isolées de NOTRE exécution\nconst runData = globalData[executionId] || { results: [], accepted: 0, rejected: 0 };\n\n// 2. Nettoyage de la mémoire (Très important pour ne pas saturer le serveur n8n)\ndelete globalData[executionId];\n\n// 3. Détermination du statut global du batch\nlet batchStatus = \"PARTIAL_SUCCESS\";\nif (runData.rejected === 0 && runData.accepted > 0) batchStatus = \"SUCCESS\";\nif (runData.accepted === 0 && runData.rejected > 0) batchStatus = \"FAILED\";\nif (runData.accepted === 0 && runData.rejected === 0) batchStatus = \"EMPTY\";\n\n// 4. Construction de la réponse finale V2\nreturn [{\n  json: {\n    status: batchStatus,\n    summary: {\n      accepted: runData.accepted,\n      rejected: runData.rejected,\n      total: runData.accepted + runData.rejected\n    },\n    results: runData.results\n  }\n}];"
+      },
+      "id": "776ffdeb-7247-4276-83f2-63a6982a0afd",
+      "name": "Construire ACK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ZgkaAWj4s1JvMnBG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ZgkaAWj4s1JvMnBG",
+          "cachedResultName": "LogService v3 — insert_log_event (PostgreSQL)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        4592,
+        -288
+      ],
+      "id": "dbbcbc52-5f9d-46e3-90f6-dc81f4714975",
+      "name": "Call 'LogService — insert_log_event'1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nhUiwrXXhhO8mZsA",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nhUiwrXXhhO8mZsA",
+          "cachedResultName": "JobService v3 — CRUD diffusion_jobs (PostgreSQL)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        3712,
+        -848
+      ],
+      "id": "9acc31e4-87b9-44ed-850e-393a9359a3c2",
+      "name": "Call 'JobService — CRUD diffusion_jobs'1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ZgkaAWj4s1JvMnBG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ZgkaAWj4s1JvMnBG",
+          "cachedResultName": "LogService v3 — insert_log_event (PostgreSQL)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -528,
+        304
+      ],
+      "id": "062b896d-4c65-47d0-862b-47f06549ef4d",
+      "name": "Call 'LogService v3 — insert_log_event (PostgreSQL)'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nhUiwrXXhhO8mZsA",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nhUiwrXXhhO8mZsA",
+          "cachedResultName": "JobService v3 — CRUD diffusion_jobs (PostgreSQL)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        864,
+        -128
+      ],
+      "id": "16be0b2e-74e1-49c2-9e1a-ed6cbfc70874",
+      "name": "Call 'JobService v3 — CRUD diffusion_jobs (PostgreSQL)'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "4gCsEvz2Df7p8soI",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/4gCsEvz2Df7p8soI",
+          "cachedResultName": "ChannelConfigService v3 — PostgreSQL + Cache"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1760,
+        -368
+      ],
+      "id": "279146cb-832c-4ed0-8c27-2a1dc55874b4",
+      "name": "Call 'ChannelConfigService v3 — PostgreSQL + Cache'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ndoL7Zcr4ATIQ4Hg",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ndoL7Zcr4ATIQ4Hg",
+          "cachedResultName": "CredentialsService v3 — PostgreSQL"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2560,
+        -416
+      ],
+      "id": "196b732c-7dd7-4e14-a1b4-3e8f1c5984f7",
+      "name": "Call 'CredentialsService v3 — PostgreSQL'"
+    }
+  ],
+  "pinData": {
+    "Trigger Sub-Workflow": [
+      {
+        "json": {
+          "batch": [
+            {
+              "strategic": {
+                "request_id": "mix-fb-003",
+                "diffusion_id": 7001,
+                "source_agent": "AGENT_COMMUNITY",
+                "diffusion_type": "ORGANIC",
+                "funnel_stage": "TOFU",
+                "campaign": {
+                  "campaign_id": 300,
+                  "campaign_name": "Batch Mixte"
+                },
+                "client": {
+                  "client_id": 1,
+                  "client_name": "Corp"
+                },
+                "channel": {
+                  "channel_id": 1,
+                  "channel_name": "FACEBOOK",
+                  "credential_ref": "CRED-META-01"
+                },
+                "schedule": {
+                  "publish_at": null,
+                  "timezone": "Africa/Casablanca"
+                },
+                "budget": {
+                  "amount": 0,
+                  "currency": "MAD"
+                },
+                "compliance": {
+                  "validated": true
+                }
+              },
+              "payload": {
+                "content": {
+                  "text": "Post Facebook du batch 2.",
+                  "media": [],
+                  "hashtags": [
+                    "#BatchTest"
+                  ]
+                },
+                "platform_params": {
+                  "page_id": "579564268565837"
+                }
+              }
+            },
+            {
+              "strategic": {
+                "request_id": "mix-ig-003",
+                "diffusion_id": 7002,
+                "source_agent": "AGENT_COMMUNITY",
+                "diffusion_type": "ORGANIC",
+                "funnel_stage": "TOFU",
+                "campaign": {
+                  "campaign_id": 300,
+                  "campaign_name": "Batch Mixte"
+                },
+                "client": {
+                  "client_id": 1,
+                  "client_name": "Corp"
+                },
+                "channel": {
+                  "channel_id": 2,
+                  "channel_name": "INSTAGRAM",
+                  "credential_ref": "CRED-META-01"
+                },
+                "schedule": {
+                  "publish_at": null,
+                  "timezone": "Africa/Casablanca"
+                },
+                "budget": {
+                  "amount": 0,
+                  "currency": "MAD"
+                },
+                "compliance": {
+                  "validated": true
+                }
+              },
+              "payload": {
+                "content": {
+                  "text": "Post Instagram du batch 2.",
+                  "media": [
+                    {
+                      "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/800px-Camponotus_flavomarginatus_ant.jpg",
+                      "type": "IMAGE"
+                    }
+                  ],
+                  "hashtags": [
+                    "#BatchTest"
+                  ]
+                },
+                "platform_params": {
+                  "account_id": "17841463503156591"
+                }
+              }
+            },
+            {
+              "strategic": {
+                "request_id": "mix-li-003",
+                "diffusion_id": 7003,
+                "source_agent": "AGENT_COMMUNITY",
+                "diffusion_type": "ORGANIC",
+                "funnel_stage": "MOFU",
+                "campaign": {
+                  "campaign_id": 300,
+                  "campaign_name": "Batch Mixte"
+                },
+                "client": {
+                  "client_id": 1,
+                  "client_name": "Corp"
+                },
+                "channel": {
+                  "channel_id": 3,
+                  "channel_name": "LINKEDIN",
+                  "credential_ref": "CRED-LINKEDIN-01"
+                },
+                "schedule": {
+                  "publish_at": null,
+                  "timezone": "Africa/Casablanca"
+                },
+                "budget": {
+                  "amount": 0,
+                  "currency": "MAD"
+                },
+                "compliance": {
+                  "validated": true
+                }
+              },
+              "payload": {
+                "content": {
+                  "text": "Post LinkedIn du batch 2.",
+                  "headline": "Test Batch",
+                  "media": [],
+                  "link": {
+                    "url": "https://example.com"
+                  },
+                  "hashtags": [
+                    "#LinkedIn"
+                  ]
+                },
+                "platform_params": {
+                  "author_urn": "urn:li:organization:92875434",
+                  "visibility": "PUBLIC"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Trigger Sub-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Initialiser le batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialiser le batch": {
+      "main": [
+        [
+          {
+            "node": "Préparer Log BATCH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer Log BATCH": {
+      "main": [
+        [
+          {
+            "node": "Call 'LogService v3 — insert_log_event (PostgreSQL)'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Éclater le batch": {
+      "main": [
+        [
+          {
+            "node": "SplitInBatches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SplitInBatches": {
+      "main": [
+        [
+          {
+            "node": "Construire ACK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validation & Normalisation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation & Normalisation": {
+      "main": [
+        [
+          {
+            "node": "Route Struct",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Struct": {
+      "main": [
+        [
+          {
+            "node": "Call 'JobService v3 — CRUD diffusion_jobs (PostgreSQL)'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Préparer Log Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyser Idempotence": {
+      "main": [
+        [
+          {
+            "node": "Route Doublon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Doublon": {
+      "main": [
+        [
+          {
+            "node": "Call 'ChannelConfigService v3 — PostgreSQL + Cache'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Préparer Log Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyser Canal + Prép. Credential": {
+      "main": [
+        [
+          {
+            "node": "Call 'CredentialsService v3 — PostgreSQL'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Métier Complète": {
+      "main": [
+        [
+          {
+            "node": "Route Métier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Métier": {
+      "main": [
+        [
+          {
+            "node": "Call 'JobService — CRUD diffusion_jobs'1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Préparer Log Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Résultat SUCCÈS": {
+      "main": [
+        [
+          {
+            "node": "Préparer Log Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer Log Item": {
+      "main": [
+        [
+          {
+            "node": "Call 'LogService — insert_log_event'1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stocker résultat": {
+      "main": [
+        [
+          {
+            "node": "SplitInBatches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'LogService — insert_log_event'1": {
+      "main": [
+        [
+          {
+            "node": "Stocker résultat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'JobService — CRUD diffusion_jobs'1": {
+      "main": [
+        [
+          {
+            "node": "Résultat SUCCÈS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'LogService v3 — insert_log_event (PostgreSQL)'": {
+      "main": [
+        [
+          {
+            "node": "Éclater le batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'JobService v3 — CRUD diffusion_jobs (PostgreSQL)'": {
+      "main": [
+        [
+          {
+            "node": "Analyser Idempotence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'ChannelConfigService v3 — PostgreSQL + Cache'": {
+      "main": [
+        [
+          {
+            "node": "Analyser Canal + Prép. Credential",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'CredentialsService v3 — PostgreSQL'": {
+      "main": [
+        [
+          {
+            "node": "Validation Métier Complète",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "40aa92f0-f30d-4c83-a284-0117204f79ed",
+  "meta": {
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "6TpCa0YvRtsp9i6r",
+  "tags": [
+    {
+      "updatedAt": "2026-03-23T15:07:20.139Z",
+      "createdAt": "2026-03-23T15:07:20.139Z",
+      "id": "0YyrCPMMgA2N9Vrp",
+      "name": "yahya-rmili"
+    },
+    {
+      "updatedAt": "2026-03-05T09:38:47.378Z",
+      "createdAt": "2026-03-05T09:38:47.378Z",
+      "id": "9wAojsOE402181c9",
+      "name": "IngestionAgent"
+    },
+    {
+      "updatedAt": "2026-03-03T22:31:23.753Z",
+      "createdAt": "2026-03-03T22:31:23.753Z",
+      "id": "HMQRWlglhpLY9uCd",
+      "name": "UC-01"
+    },
+    {
+      "updatedAt": "2026-03-25T08:23:44.594Z",
+      "createdAt": "2026-03-25T08:23:44.594Z",
+      "id": "NJyK77I8oZ1P6mCe",
+      "name": "system-diffusion"
+    }
+  ]
+}

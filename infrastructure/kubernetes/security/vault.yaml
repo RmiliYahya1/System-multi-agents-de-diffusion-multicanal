@@ -1,0 +1,91 @@
+---
+# Deployment Vault (mode production avec PVC)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+  namespace: diffusion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      containers:
+        - name: vault
+          image: hashicorp/vault:1.15
+          command: ["vault", "server", "-config=/vault/config/vault.hcl"]
+          env:
+            - name: VAULT_ADDR
+              value: http://0.0.0.0:8200
+            - name: VAULT_API_ADDR
+              value: http://vault:8200
+          ports:
+            - containerPort: 8200
+              name: http
+          securityContext:
+            capabilities:
+              add:
+                - IPC_LOCK
+          volumeMounts:
+            - name: vault-data
+              mountPath: /vault/data
+            - name: vault-config
+              mountPath: /vault/config
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health
+              port: 8200
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: "500m"
+            requests:
+              memory: 64Mi
+              cpu: "100m"
+      volumes:
+        - name: vault-data
+          persistentVolumeClaim:
+            claimName: vault-pvc
+        - name: vault-config
+          configMap:
+            name: vault-config
+---
+# ConfigMap Vault — config HCL
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: diffusion
+data:
+  vault.hcl: |
+    storage "file" {
+      path = "/vault/data"
+    }
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      tls_disable = 1
+    }
+    ui = true
+    default_lease_ttl = "168h"
+    max_lease_ttl     = "720h"
+---
+# Service Vault
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: diffusion
+spec:
+  selector:
+    app: vault
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200

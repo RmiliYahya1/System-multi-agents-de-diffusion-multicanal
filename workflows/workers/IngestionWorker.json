@@ -1,0 +1,265 @@
+{
+  "name": "IngestionWorker — Traitement asynchrone ingestion",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "worker-ingestion",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-ingestion-001",
+      "name": "Webhook Worker Ingestion",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        300
+      ],
+      "webhookId": "worker-ingestion"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// IngestionWorker — Préparer l'appel à l'IngestionAgent\n// ============================================================\n// Le queue-service envoie :\n//   { queue_name, job_id, attempt, ...original_data }\n// On reconstruit le format attendu par l'IngestionAgent :\n//   { message_id, correlation_id, batch: [...] }\n// ============================================================\n\nconst input = $input.first().json.body || $input.first().json;\nconst now = new Date();\n\n// L'item original venant de l'Orchestrateur\nconst item = { ...input };\ndelete item.queue_name;\ndelete item.job_id;\ndelete item.attempt;\ndelete item._attempts;\ndelete item._priority;\ndelete item._delay_ms;\n\nconst hex = Array.from({ length: 6 }, () =>\n  Math.floor(Math.random() * 16).toString(16).toUpperCase()\n).join('');\n\nreturn [{\n  json: {\n    message_id: `MSG-${now.getFullYear()}-${hex}`,\n    correlation_id: input.correlation_id || `CORR-${hex}`,\n    timestamp: now.toISOString(),\n    source: 'QUEUE_SERVICE',\n    target: 'INGESTION_AGENT',\n    action: 'PROCESS_BATCH',\n    payload: { batch: [item] },\n    batch: [item],\n    // Métadonnées queue\n    _queue_job_id: input.job_id,\n    _queue_attempt: input.attempt || 1,\n  }\n}];\n"
+      },
+      "id": "prep-ingestion-001",
+      "name": "Préparer appel Ingestion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "6TpCa0YvRtsp9i6r",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/6TpCa0YvRtsp9i6r",
+          "cachedResultName": "IngestionAgent"
+        },
+        "options": {}
+      },
+      "id": "call-ingestion-001",
+      "name": "Call IngestionAgent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Analyser le résultat de l'IngestionAgent\n// ============================================================\n// L'IngestionAgent retourne :\n//   { status, payload: { results: [...], summary: {...} } }\n// Pour chaque job accepté (RECEIVED/SCHEDULED) → enqueue adaptation\n// Pour chaque job rejeté → log et fin\n// ============================================================\n\nconst ack = $input.first().json;\nconst prep = $('Préparer appel Ingestion').first().json;\nconst correlation_id = prep.correlation_id;\n\nconst p = ack.payload || ack;\nconst results = p.results || [];\n\nconst accepted = results.filter(r =>\n  r.status === 'RECEIVED' || r.status === 'SCHEDULED'\n);\nconst rejected = results.filter(r =>\n  r.status !== 'RECEIVED' && r.status !== 'SCHEDULED'\n);\n\nreturn [{\n  json: {\n    correlation_id,\n    batch_id: p.batch_id || '',\n    accepted,\n    rejected,\n    has_accepted: accepted.length > 0,\n    summary: p.summary || { total: results.length, accepted: accepted.length, rejected: rejected.length },\n  }\n}];\n"
+      },
+      "id": "analyze-ingestion-001",
+      "name": "Analyser résultat Ingestion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.has_accepted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "route-accepted-001"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-accepted-001",
+      "name": "Jobs acceptés ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Enqueue chaque job accepté dans la queue 'adaptation'\n// ============================================================\n\nconst data = $input.first().json;\nconst accepted = data.accepted || [];\n\nreturn accepted.map(job => ({\n  json: {\n    url: 'https://barb-undefensible-dalila.ngrok-free.dev/enqueue/adaptation',\n    body: {\n      tenant_id: job.tenant_id,\n      job_id: job.job_id,\n      correlation_id: data.correlation_id,\n      action: 'ADAPT_CONTENT',\n      _priority: 5,\n      _attempts: 3,\n    }\n  }\n}));\n"
+      },
+      "id": "prep-enqueue-adapt-001",
+      "name": "Préparer enqueue adaptation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "http-enqueue-adapt-001",
+      "name": "HTTP — Enqueue adaptation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Réponse finale du worker\nconst data = $('Analyser résultat Ingestion').first().json;\n\nreturn [{\n  json: {\n    worker: 'IngestionWorker',\n    status: 'completed',\n    correlation_id: data.correlation_id,\n    accepted_count: data.accepted.length,\n    rejected_count: data.rejected.length,\n    enqueued_to: 'adaptation',\n    timestamp: new Date().toISOString(),\n  }\n}];\n"
+      },
+      "id": "response-ok-001",
+      "name": "Réponse Worker OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aucun job accepté — rien à enqueue\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    worker: 'IngestionWorker',\n    status: 'completed_no_jobs',\n    correlation_id: data.correlation_id,\n    rejected_count: data.rejected.length,\n    message: 'Tous les jobs ont été rejetés, rien à adapter',\n    timestamp: new Date().toISOString(),\n  }\n}];\n"
+      },
+      "id": "response-rejected-001",
+      "name": "Réponse Worker — Tous rejetés",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Worker Ingestion": {
+      "main": [
+        [
+          {
+            "node": "Préparer appel Ingestion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer appel Ingestion": {
+      "main": [
+        [
+          {
+            "node": "Call IngestionAgent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call IngestionAgent": {
+      "main": [
+        [
+          {
+            "node": "Analyser résultat Ingestion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyser résultat Ingestion": {
+      "main": [
+        [
+          {
+            "node": "Jobs acceptés ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jobs acceptés ?": {
+      "main": [
+        [
+          {
+            "node": "Préparer enqueue adaptation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Réponse Worker — Tous rejetés",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer enqueue adaptation": {
+      "main": [
+        [
+          {
+            "node": "HTTP — Enqueue adaptation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Enqueue adaptation": {
+      "main": [
+        [
+          {
+            "node": "Réponse Worker OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "worker-ingestion-v1",
+  "meta": {
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "worker-ingestion",
+  "tags": [
+    {
+      "id": "NJyK77I8oZ1P6mCe",
+      "name": "system-diffusion"
+    },
+    {
+      "id": "0YyrCPMMgA2N9Vrp",
+      "name": "yahya-rmili"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s # Scraping agressif pour le temps réel
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'queue-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['queue-service:3002']

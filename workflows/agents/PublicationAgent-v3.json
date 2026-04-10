@@ -1,0 +1,1045 @@
+{
+  "name": "PublicationAgent v1 — UC-03 Publier le contenu",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "cd95d61b-909b-4fd9-98a6-3c05155e40ec",
+      "name": "Trigger Sub-Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -4160,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Recevoir job_id — Extraction défensive (pas de throw)\n// ============================================================\nconst input = $input.first().json;\nconst job_id = input.job_id || input.payload?.job_id;\nconst correlation_id = input.correlation_id || input.payload?.correlation_id || '';\nconst incoming_message_id = input.message_id || input.payload?.message_id || null;\n\nif (!job_id) {\n  return [{ json: {\n    _init_valid: false,\n    _error_code: 'MISSING_JOB_ID',\n    _error_message: 'Champ obligatoire manquant: job_id',\n    correlation_id,\n    incoming_message_id\n  } }];\n}\n\nreturn [{ json: {\n  _init_valid: true,\n  tenant_id: input.tenant_id || 1,\n  job_id,\n  correlation_id,\n  incoming_message_id\n} }];"
+      },
+      "id": "9da64315-0b6e-4eee-b751-8172023c14a1",
+      "name": "Recevoir job_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3904,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._init_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "3b3754f2-b549-4fbd-a2d9-89e17b0209e8"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bbed0d57-7b1a-4ba0-8ef6-9dacf4438b35",
+      "name": "Guard job_id",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -3648,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Réponse immédiate si job_id manquant — pas de log (aucun job à référencer)\nconst d = $input.first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  status: 'ERROR',\n  source: 'PUBLICATION_AGENT',\n  target: 'ORCHESTRATOR',\n  correlation_id: d.correlation_id || '',\n  in_reply_to: d.incoming_message_id || null,\n  payload: {\n    job_id: null,\n    result_status: 'FAILED_SYSTEM',\n    error_code: d._error_code,\n    error_message: d._error_message\n  }\n} }];"
+      },
+      "id": "c34c29e5-2f3b-4e42-90a5-9af8ab3814bf",
+      "name": "Réponse Erreur Init",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3376,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Recevoir job_id').first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  agent: 'PUBLICATION_AGENT',\n  event_type: 'PUBLICATION_STARTED',\n  message: `Publication démarrée pour ${d.job_id}`,\n  job_id: d.job_id,\n  correlation_id: d.correlation_id\n} }];"
+      },
+      "id": "84709b23-2ee2-4b5c-83f7-7e3ad655b630",
+      "name": "Préparer Log STARTED",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3376,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ZgkaAWj4s1JvMnBG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ZgkaAWj4s1JvMnBG",
+          "cachedResultName": "LogService v3 — insert_log_event (PostgreSQL)"
+        },
+        "options": {}
+      },
+      "id": "c74715ca-54fb-448e-a96f-d343b3db5ab5",
+      "name": "Call LogService — STARTED",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -3120,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Recevoir job_id').first().json;\nreturn [{ json: { action: 'GET_JOB', tenant_id: $('Recevoir job_id').first().json.tenant_id, job_id: d.job_id } }];"
+      },
+      "id": "5621b2f5-37fe-40a0-8d4e-3fa0ed38f3c3",
+      "name": "Prép GET_JOB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2864,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nhUiwrXXhhO8mZsA",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nhUiwrXXhhO8mZsA",
+          "cachedResultName": "JobService v3 — CRUD diffusion_jobs (PostgreSQL)"
+        },
+        "options": {}
+      },
+      "id": "83b60682-2a40-4c3d-bf3b-21e66790909e",
+      "name": "Call JobService — GET",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -2608,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Extraire Job + Valider statut ADAPTED + retry_count\n// Correction : validation complète AVANT appel CredentialsService\n// ============================================================\nconst jobResult = $input.first().json;\nconst initData  = $('Recevoir job_id').first().json;\n\n// --- Job existe ? ---\nif (!jobResult.success || !jobResult.job) {\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    ...initData, _job_valid: false,\n    _result_status: 'FAILED_PRE_PUBLICATION',\n    _error_code: 'JOB_NOT_FOUND',\n    _error_message: `Job ${initData.job_id} introuvable`\n  } }];\n}\n\nconst job = jobResult.job;\nlet payload = job.payload;\nif (typeof payload === 'string') {\n  try { payload = JSON.parse(payload); } catch(e) {\n    return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n      ...initData, job, _job_valid: false,\n      _result_status: 'FAILED_PRE_PUBLICATION',\n      _error_code: 'INVALID_PAYLOAD',\n      _error_message: `Payload JSON invalide pour ${job.job_id}`\n    } }];\n  }\n}\n\n// --- Statut ADAPTED ? (UC-03 §7.1) ---\nif (job.status !== 'ADAPTED') {\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    ...initData, job, payload, _job_valid: false,\n    _result_status: 'FAILED_PRE_PUBLICATION',\n    _error_code: 'INVALID_JOB_STATUS',\n    _error_message: `Statut attendu ADAPTED, reçu ${job.status}`\n  } }];\n}\n\n// --- retry_count < retry_max ? (UC-03 §7.1) ---\nconst retryMax = job.retry_max || 3;\nif ((job.retry_count || 0) >= retryMax) {\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    ...initData, job, payload, _job_valid: false,\n    _result_status: 'FAILED_PUBLICATION',\n    _error_code: 'MAX_RETRIES_EXCEEDED',\n    _error_message: `retry_count ${job.retry_count} >= retry_max ${retryMax}`\n  } }];\n}\n\n// --- TOUT OK — Préparer appel CredentialsService ---\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  ...initData, job, payload, _job_valid: true,\n  channel_name:   job.channel_name,\n  diffusion_type: job.diffusion_type,\n  credential_ref: job.credential_ref,\n  action: 'GET_CREDENTIAL'\n} }];"
+      },
+      "id": "e1a4d35b-3988-4403-ac83-6fddcabeffe0",
+      "name": "Extraire + Valider Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2336,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._job_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "7c11a470-ed43-452b-80c3-99b448d373e1"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c9c45e04-4203-452c-a0c4-d1ba8d458cda",
+      "name": "Route Job Valide",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2080,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ndoL7Zcr4ATIQ4Hg",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ndoL7Zcr4ATIQ4Hg",
+          "cachedResultName": "CredentialsService v3 — PostgreSQL"
+        },
+        "options": {}
+      },
+      "id": "70082216-47d5-42f7-ac66-3aaa6c5820fa",
+      "name": "Call CredentialsService",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -1808,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Validation complète pré-publication — UC-03 §7.2 + §7.3 + §7.4\n// ============================================================\nconst credResult = $input.first().json;\nconst prev = $('Extraire + Valider Job').first().json;\nconst job = prev.job;\nconst payload = prev.payload;\nconst ch = prev.channel_name;\nconst dt = prev.diffusion_type;\n\nfunction fail(code, msg, status) {\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    ...prev, _pre_pub_valid: false,\n    _result_status: status || 'FAILED_PRE_PUBLICATION',\n    _error_code: code, _error_message: msg\n  } }];\n}\n\n// ═══ §7.2 — Validation credentials ═══\nif (!credResult.success || !credResult.credential) {\n  return fail('CREDENTIAL_NOT_FOUND',\n    `credential_ref ${prev.credential_ref} introuvable`, 'FAILED_CREDENTIALS');\n}\nconst cred = credResult.credential;\nconst access_token = cred.access_token;\n\nif (!access_token) {\n  return fail('EMPTY_ACCESS_TOKEN', 'access_token vide ou null', 'FAILED_CREDENTIALS');\n}\n\n// Cohérence plateforme (UC-03 §7.2)\nconst credPlatform = (cred.platform || '').toUpperCase();\n// Facebook et Instagram partagent Meta — accepter les deux\nconst metaPlatforms = ['FACEBOOK', 'INSTAGRAM'];\nconst platformMatch = metaPlatforms.includes(ch)\n  ? metaPlatforms.includes(credPlatform) || credPlatform === 'META'\n  : credPlatform === ch;\nif (credPlatform && !platformMatch) {\n  return fail('CREDENTIAL_PLATFORM_MISMATCH',\n    `credential.platform=${cred.platform}, attendu ${ch}`, 'FAILED_CREDENTIALS');\n}\n\n// ═══ §7.4 — Planification ═══\nif (job.scheduled_at) {\n  const scheduledAt = new Date(job.scheduled_at);\n  if (scheduledAt > new Date()) {\n    return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n      ...prev, _pre_pub_valid: false,\n      _result_status: 'PUBLICATION_DEFERRED',\n      _error_code: 'SCHEDULED_FUTURE',\n      _error_message: `scheduled_at ${job.scheduled_at} dans le futur`\n    } }];\n  }\n}\n\n// ═══ §7.3 — Validation structurelle du payload ═══\nconst content = payload.content;\nif (!content || typeof content !== 'object') {\n  return fail('MISSING_CONTENT', 'content absent ou null');\n}\nif (!content.text || typeof content.text !== 'string' || content.text.trim() === '') {\n  return fail('MISSING_TEXT', 'content.text vide ou absent');\n}\nconst pp = payload.platform_params;\nif (!pp || typeof pp !== 'object') {\n  return fail('MISSING_PLATFORM_PARAMS', 'platform_params absent ou null');\n}\n\n// ═══ §7.3 — Validations par canal ═══\nif (ch === 'FACEBOOK') {\n  if (!pp.page_id) return fail('MISSING_PAGE_ID', 'page_id absent dans platform_params');\n}\nif (ch === 'INSTAGRAM') {\n  if (!pp.account_id && !pp.ig_account_id) {\n    return fail('MISSING_ACCOUNT_ID', 'account_id absent pour Instagram');\n  }\n  if (!content.media || !Array.isArray(content.media) || content.media.length === 0) {\n    return fail('MISSING_MEDIA', 'media obligatoire pour Instagram');\n  }\n}\nif (ch === 'LINKEDIN') {\n  if (!pp.author_urn) return fail('MISSING_AUTHOR_URN', 'author_urn absent pour LinkedIn');\n  if (!pp.visibility)  return fail('MISSING_VISIBILITY', 'visibility absent pour LinkedIn');\n}\n\n// ═══ §7.3 — Validations PAID ═══\nif (dt === 'PAID') {\n  if (!payload.ads || typeof payload.ads !== 'object') {\n    return fail('MISSING_ADS_BLOCK', 'Bloc ads absent pour PAID');\n  }\n  if ((ch === 'FACEBOOK' || ch === 'INSTAGRAM') && !pp.cta_type) {\n    return fail('MISSING_CTA', 'cta_type absent pour PAID');\n  }\n  if (ch === 'FACEBOOK') {\n    if (!pp.ad_format) return fail('MISSING_AD_FORMAT', 'ad_format absent pour PAID Facebook');\n    if (!payload.ads.campaign_params?.objective) {\n      return fail('MISSING_CAMPAIGN_OBJECTIVE', 'campaign_params.objective absent');\n    }\n    if (!payload.ads.adset_params?.targeting) {\n      return fail('MISSING_TARGETING', 'adset_params.targeting absent');\n    }\n    if (!payload.ads.adset_params?.placements) {\n      return fail('MISSING_PLACEMENTS', 'adset_params.placements absent');\n    }\n  }\n  if (ch === 'INSTAGRAM' && !content.link?.url) {\n    return fail('MISSING_LINK_URL', 'content.link.url absent pour Instagram PAID');\n  }\n  if (ch === 'LINKEDIN') {\n    if (!payload.ads.campaign_params?.objective) {\n      return fail('MISSING_CAMPAIGN_OBJECTIVE', 'campaign_params.objective absent pour LinkedIn PAID');\n    }\n    if (!content.link?.url) {\n      return fail('MISSING_LINK_URL', 'content.link.url absent pour LinkedIn PAID');\n    }\n  }\n  // Budget\n  const budget = job.budget_amount || payload.ads?.budget_amount;\n  const currency = job.budget_currency || payload.ads?.budget_currency;\n  if (!budget || budget <= 0) return fail('INVALID_BUDGET', 'budget_amount invalide ou absent');\n  if (!currency) return fail('INVALID_BUDGET', 'budget_currency absent');\n}\n\n// ═══ TOUT OK ═══\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  ...prev,\n  _pre_pub_valid: true,\n  access_token   // Seul le token transite — pas l'objet credential entier\n} }];"
+      },
+      "id": "cce5382e-037c-43f1-89e0-a9a0fdcc2d05",
+      "name": "Valider Credentials + Pré-pub",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._pre_pub_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "70cf3378-1d95-45da-9547-8e953e1e5923"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0c7c6019-58c0-4cfb-826c-a91eb5f4908e",
+      "name": "Route pré-pub",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1296,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Valider Credentials + Pré-pub').first().json;\nreturn [{ json: {\n  action: 'UPDATE_JOB', tenant_id: $('Recevoir job_id').first().json.tenant_id,\n  job_id: d.job_id,\n  fields: { status: 'PUBLISHING' }\n} }];"
+      },
+      "id": "40cad80a-3309-411b-ae11-2b372acd2e2e",
+      "name": "Prép UPDATE PUBLISHING",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1040,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nhUiwrXXhhO8mZsA",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nhUiwrXXhhO8mZsA",
+          "cachedResultName": "JobService v3 — CRUD diffusion_jobs (PostgreSQL)"
+        },
+        "options": {}
+      },
+      "id": "8d2a0c5d-c310-4853-9270-f841dfea3cad",
+      "name": "Call JobService — PUBLISHING",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -784,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// ROUTAGE — Préparer payload standardisé (Adapter Pattern)\n// ============================================================\nconst d = $('Valider Credentials + Pré-pub').first().json;\nconst ch = d.channel_name;\n\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  job:            d.job,\n  payload:        d.payload,\n  access_token:   d.access_token,\n  channel_name:   ch,\n  diffusion_type: d.diffusion_type,\n  job_id:         d.job_id,\n  correlation_id: d.correlation_id,\n  _channel:       ch\n} }];"
+      },
+      "id": "68df04e1-e915-445c-8e61-4fc94cbcbc04",
+      "name": "Préparer routage connecteur",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._channel }}",
+                    "rightValue": "FACEBOOK",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "rule-fb"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._channel }}",
+                    "rightValue": "INSTAGRAM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "rule-ig"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._channel }}",
+                    "rightValue": "LINKEDIN",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "rule-li"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "a8d30cce-c3fb-4d99-876a-e41dcea585e4",
+      "name": "Switch Canal",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -256,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "3gvFZSiJ98xCHOfX",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/3gvFZSiJ98xCHOfX",
+          "cachedResultName": "FacebookConnector — Publication Facebook"
+        },
+        "options": {}
+      },
+      "id": "1975642d-2ab0-4c3e-adc1-0c6959c76e69",
+      "name": "Call FacebookConnector",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "O3oIWdQTcp7wyEfG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/O3oIWdQTcp7wyEfG",
+          "cachedResultName": "InstagramConnector — Publication Instagram"
+        },
+        "options": {}
+      },
+      "id": "1641f998-4434-4118-82a9-256872be14ff",
+      "name": "Call InstagramConnector",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "wkqUF2Rl9j94ynvI",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/wkqUF2Rl9j94ynvI",
+          "cachedResultName": "LinkedInConnector — Publication LinkedIn"
+        },
+        "options": {}
+      },
+      "id": "1bc7672c-ded7-4c66-9c4f-928a90863ea8",
+      "name": "Call LinkedInConnector",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Fallback — Canal non supporté → format erreur connecteur\n// Produit le même contrat que les connecteurs pour convergence\n// ============================================================\nconst d = $input.first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  _success: false,\n  _status: 'FAILED_PUBLICATION',\n  _error_code: 'UNSUPPORTED_CHANNEL',\n  _error_message: `Canal ${d._channel || 'inconnu'} non supporté par le système`,\n  _platform_post_id: null,\n  _orphans: {}\n} }];"
+      },
+      "id": "150fc783-1e98-49a8-a0b9-2ff0447ede6a",
+      "name": "Fallback Canal Inconnu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// CONVERGENCE — Normaliser résultat connecteur (Normalizer Pattern)\n// ============================================================\nconst result   = $input.first().json;\nconst initData = $('Recevoir job_id').first().json;\n\nif (result._success) {\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    ...initData,\n    _final_status:     'PUBLISHED',\n    _platform_post_id: result._platform_post_id,\n    _error_code:       null,\n    _error_message:    null\n  } }];\n}\n\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  ...initData,\n  _final_status:     result._status || 'FAILED_PUBLICATION',\n  _platform_post_id: null,\n  _error_code:       result._error_code,\n  _error_message:    result._error_message,\n  _orphans:          result._orphans || {}\n} }];"
+      },
+      "id": "ea090a1b-34da-436d-a211-c75038d07f3d",
+      "name": "Traiter résultat connecteur",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// UPDATE JOB avec le statut final + retry_count\nconst d = $input.first().json;\nconst job = $('Extraire + Valider Job').first().json.job || {};\nconst fields = {\n  status:           d._final_status,\n  platform_post_id: d._platform_post_id || '',\n  retry_count:      (job.retry_count || 0) + (d._final_status !== 'PUBLISHED' ? 1 : 0)\n};\nif (d._error_code) {\n  fields.last_error = JSON.stringify({\n    error_code:    d._error_code,\n    error_message: d._error_message,\n    ...(d._orphans && Object.keys(d._orphans).length > 0 ? { orphan_objects: d._orphans } : {})\n  });\n}\nreturn [{ json: { action: 'UPDATE_JOB', tenant_id: $('Recevoir job_id').first().json.tenant_id, job_id: d.job_id, fields } }];"
+      },
+      "id": "3adcb83c-55c5-4429-952d-f62426832550",
+      "name": "Prép UPDATE final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nhUiwrXXhhO8mZsA",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nhUiwrXXhhO8mZsA",
+          "cachedResultName": "JobService v3 — CRUD diffusion_jobs (PostgreSQL)"
+        },
+        "options": {}
+      },
+      "id": "c1990d86-b548-4dd3-acc9-2e0552231608",
+      "name": "Call JobService — Final",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Traiter résultat connecteur').first().json;\nconst isSuccess = d._final_status === 'PUBLISHED';\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  agent:          'PUBLICATION_AGENT',\n  event_type:     isSuccess ? 'PUBLICATION_COMPLETED' : 'PUBLICATION_FAILURE',\n  message:        isSuccess\n    ? `Publication réussie, platform_post_id=${d._platform_post_id}`\n    : `Échec: ${d._error_code} — ${d._error_message}`,\n  job_id:         d.job_id,\n  correlation_id: d.correlation_id\n} }];"
+      },
+      "id": "e34400cb-0227-4d17-accc-e4e0166e0226",
+      "name": "Prép Log Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ZgkaAWj4s1JvMnBG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ZgkaAWj4s1JvMnBG",
+          "cachedResultName": "LogService v3 — insert_log_event (PostgreSQL)"
+        },
+        "options": {}
+      },
+      "id": "b2a0cf60-17dd-4c83-ab3c-4bc97467212e",
+      "name": "Call LogService — Final",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1328,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Réponse V2 vers l'Orchestrateur — branche publication\nconst d = $('Traiter résultat connecteur').first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  status:         'SUCCESS',\n  source:         'PUBLICATION_AGENT',\n  target:         'ORCHESTRATOR',\n  correlation_id: d.correlation_id,\n  in_reply_to:    d.incoming_message_id || null,\n  payload: {\n    job_id:         d.job_id,\n    result_status:  d._final_status,\n    platform_post_id: d._platform_post_id || null,\n    error_code:     d._error_code || null,\n    error_message:  d._error_message || null\n  }\n} }];"
+      },
+      "id": "e3cdc5c6-a0e2-4407-8975-876f738bcb55",
+      "name": "Réponse finale",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// BRANCHE ÉCHEC — Update job avec statut d'erreur\n// PUBLICATION_DEFERRED : le job RESTE en ADAPTED (spec UC-03 §7.4)\n// ============================================================\nconst d = $input.first().json;\n\n// Pour DEFERRED, le job reste en ADAPTED (reprise automatique possible)\nconst status = (d._result_status === 'PUBLICATION_DEFERRED') ? 'ADAPTED' : d._result_status;\n\nconst fields = {\n  status,\n  last_error: JSON.stringify({\n    error_code:    d._error_code,\n    error_message: d._error_message\n  })\n};\n\nreturn [{ json: {\n  action: 'UPDATE_JOB', tenant_id: $('Recevoir job_id').first().json.tenant_id,\n  job_id: d.job_id,\n  fields,\n  // Transmettre les données nécessaires aux nodes suivants\n  _result_status:     d._result_status,\n  _error_code:        d._error_code,\n  _error_message:     d._error_message,\n  correlation_id:     d.correlation_id,\n  incoming_message_id: d.incoming_message_id\n} }];"
+      },
+      "id": "fc476a7e-fb4b-4cd6-888f-4b543439bed5",
+      "name": "Prép UPDATE échec",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1040,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nhUiwrXXhhO8mZsA",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nhUiwrXXhhO8mZsA",
+          "cachedResultName": "JobService v3 — CRUD diffusion_jobs (PostgreSQL)"
+        },
+        "options": {}
+      },
+      "id": "b2bb0ea8-f41a-4d78-aaa1-f20dc3e78429",
+      "name": "Call JobService — Échec",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -784,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Prép UPDATE échec').first().json;\nconst eventType = (d._result_status === 'PUBLICATION_DEFERRED')\n  ? 'PUBLICATION_DEFERRED'\n  : (d._result_status === 'FAILED_CREDENTIALS')\n    ? d._error_code   // ex: CREDENTIAL_NOT_FOUND, CREDENTIAL_PLATFORM_MISMATCH\n    : 'FAILED_PRE_PUBLICATION';\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  agent:          'PUBLICATION_AGENT',\n  event_type:     eventType,\n  message:        `${d._result_status}: ${d._error_message} pour ${d.job_id}`,\n  job_id:         d.job_id,\n  correlation_id: d.correlation_id\n} }];"
+      },
+      "id": "6cf9d3d5-523a-490e-ac4b-8ed29ca8e4d4",
+      "name": "Prép Log Échec",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ZgkaAWj4s1JvMnBG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ZgkaAWj4s1JvMnBG",
+          "cachedResultName": "LogService v3 — insert_log_event (PostgreSQL)"
+        },
+        "options": {}
+      },
+      "id": "6b1580e3-c8ad-4074-a9bc-f37a897e6c76",
+      "name": "Call LogService — Échec",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Réponse V2 vers l'Orchestrateur — branche échec\n// CORRIGÉ : in_reply_to désormais inclus (cohérence V2)\nconst d = $('Prép UPDATE échec').first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  status:         'SUCCESS',\n  source:         'PUBLICATION_AGENT',\n  target:         'ORCHESTRATOR',\n  correlation_id: d.correlation_id,\n  in_reply_to:    d.incoming_message_id || null,\n  payload: {\n    job_id:        d.job_id,\n    result_status: d._result_status,\n    error_code:    d._error_code,\n    error_message: d._error_message\n  }\n} }];"
+      },
+      "id": "a47f19bc-0eef-4531-97ba-54a8f04bc4a3",
+      "name": "Réponse ÉCHEC pré-pub",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        832
+      ]
+    }
+  ],
+  "pinData": {
+    "Trigger Sub-Workflow": [
+      {
+        "json": {
+          "action": "PUBLISH_CONTENT",
+          "job_id": "JOB-TEST-PUB-006",
+          "correlation_id": "TEST-PUB-LI-001"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Trigger Sub-Workflow": {
+      "main": [
+        [
+          {
+            "node": "Recevoir job_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recevoir job_id": {
+      "main": [
+        [
+          {
+            "node": "Guard job_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard job_id": {
+      "main": [
+        [
+          {
+            "node": "Préparer Log STARTED",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Réponse Erreur Init",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer Log STARTED": {
+      "main": [
+        [
+          {
+            "node": "Call LogService — STARTED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LogService — STARTED": {
+      "main": [
+        [
+          {
+            "node": "Prép GET_JOB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prép GET_JOB": {
+      "main": [
+        [
+          {
+            "node": "Call JobService — GET",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call JobService — GET": {
+      "main": [
+        [
+          {
+            "node": "Extraire + Valider Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraire + Valider Job": {
+      "main": [
+        [
+          {
+            "node": "Route Job Valide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Job Valide": {
+      "main": [
+        [
+          {
+            "node": "Call CredentialsService",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prép UPDATE échec",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call CredentialsService": {
+      "main": [
+        [
+          {
+            "node": "Valider Credentials + Pré-pub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valider Credentials + Pré-pub": {
+      "main": [
+        [
+          {
+            "node": "Route pré-pub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route pré-pub": {
+      "main": [
+        [
+          {
+            "node": "Prép UPDATE PUBLISHING",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prép UPDATE échec",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prép UPDATE PUBLISHING": {
+      "main": [
+        [
+          {
+            "node": "Call JobService — PUBLISHING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call JobService — PUBLISHING": {
+      "main": [
+        [
+          {
+            "node": "Préparer routage connecteur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer routage connecteur": {
+      "main": [
+        [
+          {
+            "node": "Switch Canal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Canal": {
+      "main": [
+        [
+          {
+            "node": "Call FacebookConnector",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call InstagramConnector",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call LinkedInConnector",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback Canal Inconnu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call FacebookConnector": {
+      "main": [
+        [
+          {
+            "node": "Traiter résultat connecteur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call InstagramConnector": {
+      "main": [
+        [
+          {
+            "node": "Traiter résultat connecteur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LinkedInConnector": {
+      "main": [
+        [
+          {
+            "node": "Traiter résultat connecteur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback Canal Inconnu": {
+      "main": [
+        [
+          {
+            "node": "Traiter résultat connecteur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Traiter résultat connecteur": {
+      "main": [
+        [
+          {
+            "node": "Prép UPDATE final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prép UPDATE final": {
+      "main": [
+        [
+          {
+            "node": "Call JobService — Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call JobService — Final": {
+      "main": [
+        [
+          {
+            "node": "Prép Log Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prép Log Final": {
+      "main": [
+        [
+          {
+            "node": "Call LogService — Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LogService — Final": {
+      "main": [
+        [
+          {
+            "node": "Réponse finale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prép UPDATE échec": {
+      "main": [
+        [
+          {
+            "node": "Call JobService — Échec",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call JobService — Échec": {
+      "main": [
+        [
+          {
+            "node": "Prép Log Échec",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prép Log Échec": {
+      "main": [
+        [
+          {
+            "node": "Call LogService — Échec",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LogService — Échec": {
+      "main": [
+        [
+          {
+            "node": "Réponse ÉCHEC pré-pub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "849853b2-575a-43e3-a02a-3230f4a2a94e",
+  "meta": {
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "S4phz7f0f00ztW8N",
+  "tags": [
+    {
+      "updatedAt": "2026-03-23T15:07:20.139Z",
+      "createdAt": "2026-03-23T15:07:20.139Z",
+      "id": "0YyrCPMMgA2N9Vrp",
+      "name": "yahya-rmili"
+    },
+    {
+      "updatedAt": "2026-03-25T08:23:44.594Z",
+      "createdAt": "2026-03-25T08:23:44.594Z",
+      "id": "NJyK77I8oZ1P6mCe",
+      "name": "system-diffusion"
+    },
+    {
+      "updatedAt": "2026-03-03T22:31:23.745Z",
+      "createdAt": "2026-03-03T22:31:23.745Z",
+      "id": "ReBzMcnTpRRcDrJi",
+      "name": "Agents"
+    },
+    {
+      "updatedAt": "2026-03-12T10:39:03.548Z",
+      "createdAt": "2026-03-12T10:39:03.548Z",
+      "id": "Vh0V4CLqghSYgDvX",
+      "name": "PublicationAgent"
+    },
+    {
+      "updatedAt": "2026-03-12T10:39:03.545Z",
+      "createdAt": "2026-03-12T10:39:03.545Z",
+      "id": "qxkFHJ73TZo5q3uV",
+      "name": "UC-03"
+    }
+  ]
+}

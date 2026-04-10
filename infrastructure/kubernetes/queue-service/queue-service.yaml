@@ -1,0 +1,65 @@
+---
+# Deployment queue-service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queue-service
+  namespace: diffusion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: queue-service
+  template:
+    metadata:
+      labels:
+        app: queue-service
+    spec:
+      containers:
+        - name: queue-service
+          image: diffusion-queue-service:latest
+          imagePullPolicy: IfNotPresent  # Image buildée localement
+          env:
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: N8N_WEBHOOK_BASE_URL
+              value: http://n8n-main:5678
+            - name: QUEUE_SERVICE_PORT
+              value: "3002"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: diffusion-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 3002
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: "500m"
+            requests:
+              memory: 128Mi
+              cpu: "100m"
+---
+# Service queue-service
+apiVersion: v1
+kind: Service
+metadata:
+  name: queue-service
+  namespace: diffusion
+spec:
+  selector:
+    app: queue-service
+  ports:
+    - name: http
+      port: 3002
+      targetPort: 3002

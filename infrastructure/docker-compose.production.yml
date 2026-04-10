@@ -1,0 +1,259 @@
+# ═══════════════════════════════════════════════════════════════
+# Docker Compose — Système de Diffusion (Phase 6 - Production HA)
+# ═══════════════════════════════════════════════════════════════
+
+version: '3.9'
+
+services:
+  # ═══════════════════════════════════════════════════════════
+  # COUCHE 1 — MULTI-WORKER N8N (Mode Queue)
+  # ═══════════════════════════════════════════════════════════
+  n8n-main:
+    image: n8nio/n8n:latest
+    container_name: diffusion-n8n-main
+    restart: unless-stopped
+    environment:
+      N8N_HOST: 0.0.0.0
+      N8N_PORT: 5678
+      WEBHOOK_URL: "https://${DOMAIN_NAME:-n8n.iaweb.dev}/"
+      GENERIC_TIMEZONE: Africa/Casablanca
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_RUNNERS_ENABLED: "true"
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: diffusion_db
+      DB_POSTGRESDB_USER: diffusion_admin
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-DiffUs10n_S3cur3_2026!}
+      EXECUTIONS_MODE: queue
+      QUEUE_HEALTH_CHECK_ACTIVE: "true"
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD:-R3d1s_D1ffus10n_2026!}
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: 20
+      N8N_PAYLOAD_SIZE_MAX: 64
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 168
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    ports:
+      - "5678:5678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+
+  n8n-worker:
+    image: n8nio/n8n:latest
+    command: worker
+    restart: unless-stopped
+    environment:
+      GENERIC_TIMEZONE: Africa/Casablanca
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_RUNNERS_ENABLED: "true"
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: diffusion_db
+      DB_POSTGRESDB_USER: diffusion_admin
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-DiffUs10n_S3cur3_2026!}
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD:-R3d1s_D1ffus10n_2026!}
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: 10
+      N8N_PAYLOAD_SIZE_MAX: 64
+      EXECUTIONS_DATA_PRUNE: "true"
+    depends_on:
+      n8n-main:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '1.5'
+
+  # ═══════════════════════════════════════════════════════════
+  # COUCHE 2 — STOCKAGE & MESSAGES (Améliorée)
+  # ═══════════════════════════════════════════════════════════
+  postgres:
+    image: postgres:16-alpine
+    container_name: diffusion-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: diffusion_db
+      POSTGRES_USER: diffusion_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-DiffUs10n_S3cur3_2026!}
+      TZ: Africa/Casablanca
+      PGTZ: Africa/Casablanca
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-data-prod:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    command: >
+      postgres
+        -c max_connections=200
+        -c shared_buffers=512MB
+        -c work_mem=16MB
+        -c effective_cache_size=1536MB
+        -c maintenance_work_mem=256MB
+        -c wal_level=replica
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U diffusion_admin -d diffusion_db" ]
+      interval: 10s
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: diffusion-pgadmin-prod
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-rmiliyahya2@gmail.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_LISTEN_PORT: 5050
+    ports:
+      - "5050:5050"
+    volumes:
+      - pgadmin-data-prod:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: diffusion-redis-prod
+    restart: unless-stopped
+    command: >
+      redis-server
+        --maxmemory 1gb
+        --maxmemory-policy allkeys-lru
+        --appendonly yes
+        --save 60 1000
+        --requirepass ${REDIS_PASSWORD:-R3d1s_D1ffus10n_2026!}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data-prod:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-R3d1s_D1ffus10n_2026!}", "ping" ]
+      interval: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+
+  queue-service:
+    build: ./queue-service
+    container_name: diffusion-queue-service-prod
+    restart: unless-stopped
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-R3d1s_D1ffus10n_2026!}
+      # Dirige directement vers le noeud principal N8N interne au cluster
+      N8N_WEBHOOK_BASE_URL: http://n8n-main:5678
+      QUEUE_SERVICE_PORT: 3002
+    ports:
+      - "3002:3002"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ═══════════════════════════════════════════════════════════
+  # COUCHE 3 — EDGE & API GATEWAY
+  # ═══════════════════════════════════════════════════════════
+  nginx:
+    image: nginx:alpine
+    container_name: diffusion-nginx-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.production.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      n8n-main:
+        condition: service_started
+
+  kong:
+    image: kong:3.6
+    container_name: diffusion-kong-prod
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    volumes:
+      - ./kong/kong.yml:/usr/local/kong/declarative/kong.yml:ro
+
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: diffusion-vault-prod
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-V4ult_R00t_T0k3n_2026!}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+
+  # ═══════════════════════════════════════════════════════════
+  # COUCHE 4 — OBSERVABILITÉ (Monitoring complet)
+  # ═══════════════════════════════════════════════════════════
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: diffusion-prometheus-prod
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data-prod:/prometheus
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: diffusion-grafana-prod
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data-prod:/var/lib/grafana
+    depends_on:
+      - postgres
+      - prometheus
+
+volumes:
+  pg-data-prod:
+  pgadmin-data-prod:
+  redis-data-prod:
+  prometheus-data-prod:
+  grafana-data-prod:

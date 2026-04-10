@@ -1,0 +1,105 @@
+---
+# StatefulSet PostgreSQL
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: diffusion
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          args:
+            - postgres
+            - -c
+            - max_connections=200
+            - -c
+            - shared_buffers=512MB
+            - -c
+            - work_mem=16MB
+            - -c
+            - effective_cache_size=1536MB
+            - -c
+            - maintenance_work_mem=256MB
+            - -c
+            - wal_level=replica
+          env:
+            - name: POSTGRES_DB
+              value: diffusion_db
+            - name: POSTGRES_USER
+              value: diffusion_admin
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: diffusion-secrets
+                  key: POSTGRES_PASSWORD
+            - name: TZ
+              value: Africa/Casablanca
+            - name: PGTZ
+              value: Africa/Casablanca
+          ports:
+            - containerPort: 5432
+              name: postgres
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - diffusion_admin
+                - -d
+                - diffusion_db
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - diffusion_admin
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            limits:
+              memory: 2Gi
+              cpu: "2"
+            requests:
+              memory: 512Mi
+              cpu: "250m"
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: init-scripts
+          configMap:
+            name: postgres-init-config
+---
+# Service PostgreSQL (ClusterIP interne)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: diffusion
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  clusterIP: None   # Headless pour StatefulSet

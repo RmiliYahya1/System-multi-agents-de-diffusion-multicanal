@@ -1,0 +1,67 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-workflows:
+    name: Update n8n Workflows via API
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Push Workflows to n8n
+        env:
+          # Ces secrets doivent être configurés dans le repos GitHub
+          # Settings > Secrets and variables > Actions
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+          N8N_HOST: ${{ secrets.N8N_PROD_HOST }} # Ex: https://n8n.mondomaine.com
+        run: |
+          echo "Deploiement des workflows vers $N8N_HOST"
+          find workflows/ -name "*.json" | while read f; do
+            WORKFLOW_ID=$(jq -r '.id // empty' "$f")
+            
+            if [ -z "$WORKFLOW_ID" ]; then
+              echo "⚠️ Skip $f: Pas d'ID trouvé dans le fichier."
+              continue
+            fi
+            
+            echo "Mise à jour du workflow ID: $WORKFLOW_ID ($f)..."
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH "$N8N_HOST/api/v1/workflows/$WORKFLOW_ID" \
+              -H "X-N8N-API-KEY: $N8N_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d @"$f")
+              
+            if [ "$HTTP_STATUS" -eq 200 ]; then
+              echo "✅ Success"
+            else
+              echo "❌ Failed (HTTP $HTTP_STATUS)"
+              exit 1
+            fi
+          done
+
+  deploy-kubernetes:
+    name: Update K8s Cluster
+    runs-on: ubuntu-latest
+    environment: production
+    needs: deploy-workflows
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy Manifests via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/diffusion
+            git pull origin main
+            
+            echo "Applying Kubernetes manifests..."
+            # On n'applique que ce qui est 'sans risque' automatiquement
+            kubectl apply -f infrastructure/kubernetes/queue-service/queue-service.yaml
+            kubectl apply -f infrastructure/kubernetes/n8n/
+            kubectl apply -f infrastructure/kubernetes/gateway/

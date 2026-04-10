@@ -1,0 +1,241 @@
+{
+  "name": "AdaptationWorker — Traitement asynchrone adaptation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "worker-adaptation",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-adapt-001",
+      "name": "Webhook Worker Adaptation",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        300
+      ],
+      "webhookId": "worker-adaptation"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// AdaptationWorker — Préparer l'appel à l'AdaptationAgent\n// ============================================================\n// Le queue-service envoie :\n//   { queue_name, job_id (BullMQ), attempt, job_id (métier), correlation_id, action }\n// Format attendu par AdaptationAgent :\n//   { job_id, correlation_id, action: 'ADAPT_CONTENT' }\n// ============================================================\n\nconst input = $input.first().json.body || $input.first().json;\n\nreturn [{\n  json: {\n    tenant_id: input.tenant_id || 1,\n    job_id: input.job_id,\n    correlation_id: input.correlation_id || '',\n    action: 'ADAPT_CONTENT',\n    _queue_tenant_id: input.tenant_id,\n    _queue_attempt: input.attempt || 1,\n  }\n}];\n"
+      },
+      "id": "prep-adapt-001",
+      "name": "Préparer appel Adaptation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "5nN5TsmHLJiwY57B",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/5nN5TsmHLJiwY57B",
+          "cachedResultName": "AdaptationAgent — UC-02 Adapter le contenu"
+        },
+        "options": {}
+      },
+      "id": "call-adapt-001",
+      "name": "Call AdaptationAgent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Analyser résultat de l'AdaptationAgent\n// ============================================================\n// Si ADAPTED → enqueue dans publication-{canal}\n// Si échec → log et fin (BullMQ retry automatiquement si transient)\n// ============================================================\n\nconst result = $input.first().json;\nconst prep = $('Préparer appel Adaptation').first().json;\nconst p = result.payload || result;\n\nconst resultStatus = p.result_status || 'UNKNOWN';\nconst jobId = p.job_id || prep.job_id;\nconst correlation_id = result.correlation_id || prep.correlation_id;\n\n// Déterminer le canal pour le routage\nconst channel = (p.channel_name || '').toUpperCase();\n\nlet queueTarget = null;\nif (resultStatus === 'ADAPTED') {\n  if (channel === 'FACEBOOK') queueTarget = 'publication-facebook';\n  else if (channel === 'INSTAGRAM') queueTarget = 'publication-instagram';\n  else if (channel === 'LINKEDIN') queueTarget = 'publication-linkedin';\n  else queueTarget = 'publication-facebook'; // fallback\n}\n\nreturn [{\n  json: {\n    is_adapted: resultStatus === 'ADAPTED',\n    result_status: resultStatus,\n    job_id: jobId,\n    correlation_id,\n    channel_name: channel,\n    queue_target: queueTarget,\n    error_code: p.error_code || null,\n    error_message: p.error_message || null,\n  }\n}];\n"
+      },
+      "id": "analyze-adapt-001",
+      "name": "Analyser résultat Adaptation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_adapted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "check-adapted-001"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-adapted-001",
+      "name": "Adapté ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://barb-undefensible-dalila.ngrok-free.dev/enqueue/{{ $json.queue_target }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ job_id: $json.job_id, correlation_id: $json.correlation_id, channel_name: $json.channel_name, action: 'PUBLISH_CONTENT', _priority: 3, _attempts: 3 }) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "http-enqueue-pub-001",
+      "name": "HTTP — Enqueue publication",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Réponse finale — job adapté et enqueued pour publication\nconst data = $('Analyser résultat Adaptation').first().json;\n\nreturn [{\n  json: {\n    worker: 'AdaptationWorker',\n    status: 'completed',\n    job_id: data.job_id,\n    correlation_id: data.correlation_id,\n    result_status: data.result_status,\n    enqueued_to: data.queue_target,\n    timestamp: new Date().toISOString(),\n  }\n}];\n"
+      },
+      "id": "response-adapted-001",
+      "name": "Réponse Worker — Adapté",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Réponse — adaptation échouée\n// BullMQ va réessayer automatiquement (backoff exponentiel)\nconst data = $input.first().json;\n\n// Si c'est une erreur définitive (pas transient), ne pas retry\nconst permanentErrors = ['REJECTED_PAYLOAD', 'FAILED_ADAPTATION'];\nconst isPermanent = permanentErrors.includes(data.result_status);\n\nif (isPermanent) {\n  // Répondre OK pour que BullMQ ne retente pas\n  return [{\n    json: {\n      worker: 'AdaptationWorker',\n      status: 'completed_with_error',\n      job_id: data.job_id,\n      correlation_id: data.correlation_id,\n      result_status: data.result_status,\n      error_code: data.error_code,\n      permanent_failure: true,\n      message: 'Erreur définitive — pas de retry',\n      timestamp: new Date().toISOString(),\n    }\n  }];\n}\n\n// Erreur transient (FAILED_LLM) → throw pour que BullMQ retry\nthrow new Error(`Adaptation failed (transient): ${data.result_status} — ${data.error_message}`);\n"
+      },
+      "id": "response-failed-001",
+      "name": "Réponse Worker — Échec",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Worker Adaptation": {
+      "main": [
+        [
+          {
+            "node": "Préparer appel Adaptation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer appel Adaptation": {
+      "main": [
+        [
+          {
+            "node": "Call AdaptationAgent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call AdaptationAgent": {
+      "main": [
+        [
+          {
+            "node": "Analyser résultat Adaptation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyser résultat Adaptation": {
+      "main": [
+        [
+          {
+            "node": "Adapté ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adapté ?": {
+      "main": [
+        [
+          {
+            "node": "HTTP — Enqueue publication",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Réponse Worker — Échec",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Enqueue publication": {
+      "main": [
+        [
+          {
+            "node": "Réponse Worker — Adapté",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "worker-adaptation-v1",
+  "meta": {
+    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+  },
+  "id": "worker-adaptation",
+  "tags": [
+    {
+      "id": "NJyK77I8oZ1P6mCe",
+      "name": "system-diffusion"
+    },
+    {
+      "id": "0YyrCPMMgA2N9Vrp",
+      "name": "yahya-rmili"
+    }
+  ]
+}
