@@ -1,23 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 resources:
-  - 00-namespace.yaml
-  - secrets/secrets.yaml
-  - configmaps/kong-cm.yaml
-  - configmaps/prometheus-cm.yaml
-  - storage/pvcs.yaml
-  - database/postgres.yaml
-  - cache/redis.yaml
-  - n8n/n8n-main.yaml
-  - n8n/n8n-worker.yaml
-  - queue-service/queue-service.yaml
-  - gateway/kong.yaml
-  - monitoring/monitoring.yaml
-  - security/vault.yaml
-  - ingress/ingress.yaml
-  - backups/cronjobs.yaml
-
-commonLabels:
-  app.kubernetes.io/part-of: diffusion-platform
-  app.kubernetes.io/managed-by: kustomize
+  - data
+  - app
+  - gateway
+  - observability
+  - security

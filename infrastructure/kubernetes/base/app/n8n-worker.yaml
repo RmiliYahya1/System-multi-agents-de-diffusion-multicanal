@@ -1,36 +1,29 @@
 ---
-# Deployment n8n-main
+# Deployment n8n-worker (3 replicas réels + HPA)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: n8n-main
-  namespace: diffusion
+  name: n8n-worker
+  
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
-      app: n8n-main
+      app: n8n-worker
   template:
     metadata:
       labels:
-        app: n8n-main
+        app: n8n-worker
     spec:
       containers:
-        - name: n8n-main
+        - name: n8n-worker
           image: n8nio/n8n:latest
+          args: ["worker"]        # ← Différence clé avec n8n-main (args = CMD en K8s)
           env:
-            - name: N8N_HOST
-              value: "0.0.0.0"
-            - name: N8N_PORT
-              value: "5678"
-            - name: WEBHOOK_URL
-              value: "http://n8n-main:5678/"
             - name: GENERIC_TIMEZONE
               value: Africa/Casablanca
             - name: EXECUTIONS_MODE
               value: queue
-            - name: QUEUE_HEALTH_CHECK_ACTIVE
-              value: "true"
             - name: QUEUE_BULL_REDIS_HOST
               value: redis
             - name: QUEUE_BULL_REDIS_PORT
@@ -48,13 +41,11 @@ spec:
             - name: N8N_RUNNERS_ENABLED
               value: "true"
             - name: N8N_CONCURRENCY_PRODUCTION_LIMIT
-              value: "20"
+              value: "10"
             - name: N8N_PAYLOAD_SIZE_MAX
               value: "64"
             - name: EXECUTIONS_DATA_PRUNE
               value: "true"
-            - name: EXECUTIONS_DATA_MAX_AGE
-              value: "168"
             - name: QUEUE_BULL_REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -70,41 +61,31 @@ spec:
                 secretKeyRef:
                   name: diffusion-secrets
                   key: N8N_ENCRYPTION_KEY
-          ports:
-            - containerPort: 5678
-              name: http
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 5678
-            initialDelaySeconds: 60
-            periodSeconds: 15
-            failureThreshold: 5
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 5678
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            failureThreshold: 3
           resources:
             limits:
-              memory: 2Gi
-              cpu: "2"
+              memory: 1.5Gi
+              cpu: "1500m"
             requests:
-              memory: 512Mi
-              cpu: "500m"
+              memory: 256Mi
+              cpu: "250m"       # Requis pour que HPA calcule le %
 ---
-# Service n8n-main
-apiVersion: v1
-kind: Service
+# HPA — Auto-scale workers selon charge CPU
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
 metadata:
-  name: n8n-main
-  namespace: diffusion
+  name: n8n-worker-hpa
+  
 spec:
-  selector:
-    app: n8n-main
-  ports:
-    - name: http
-      port: 5678
-      targetPort: 5678
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: n8n-worker
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

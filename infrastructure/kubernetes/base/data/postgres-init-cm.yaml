@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-init-config
-  namespace: diffusion
+  
 data:
   001_init_schema.sql: |
     BEGIN;

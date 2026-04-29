@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vault
-  namespace: diffusion
+  
 spec:
   replicas: 1
   selector:
@@ -62,7 +62,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: vault-config
-  namespace: diffusion
+  
 data:
   vault.hcl: |
     storage "file" {
@@ -81,7 +81,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vault
-  namespace: diffusion
+  
 spec:
   selector:
     app: vault

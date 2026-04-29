@@ -44,4 +44,29 @@ kubectl kustomize infrastructure/kubernetes/overlays/<environnement>/
 | **NodePort Services** | Inclus (pour accès direct local) | Exclus | Exclus |
 | **Image Tag (queue)** | `latest` | `staging` | `v1.0.0` |
 
-_Note: Tous les environnements partagent les mêmes Secrets et ConfigMaps définis dans la `base/`._
+## Architecture multi-namespace
+
+L'application est découpée en 5 couches fonctionnelles réparties dans des namespaces distincts. Kustomize préfixe automatiquement ces namespaces par l'environnement cible (ex: `prod-data`, `dev-app`).
+
+| Couche | Rôle | Composants principaux |
+|---|---|---|
+| `data` | Persistance et stockage | PostgreSQL, Redis, Volumes |
+| `app` | Cœur logique et processing | n8n, Queue Service |
+| `gateway` | Routage et point d'entrée | Ingress, Kong |
+| `observability` | Monitoring et alertes | Prometheus, Grafana, Exporters |
+| `security` | Gestion des secrets | Vault |
+
+### Dépendances inter-namespaces
+
+La résolution DNS entre les composants se fait via des Services `ExternalName` pour conserver un couplage faible entre les couches.
+
+```text
+  [Gateway] ---> [App] ---> [Data]
+     |             |          |
+     |             v          |
+     |        [Security]      |
+     |                        |
+     +---- [Observability] ---+
+```
+
+*Note temporaire sur les Secrets* : Actuellement, le secret principal `diffusion-secrets` est dupliqué manuellement dans chaque namespace consommateur (data, app, gateway, security). Cette duplication temporaire sera résolue à l'Étape 4 lors de l'intégration du External Secrets Operator.

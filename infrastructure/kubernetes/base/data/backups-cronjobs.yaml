@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: postgres-backup
-  namespace: diffusion
+  
 spec:
   # Exécution tous les jours à 03:00 (heure du serveur)
   schedule: "0 3 * * *"
@@ -45,7 +45,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: redis-backup
-  namespace: diffusion
+  
 spec:
   # Exécution tous les jours à 03:30
   schedule: "30 3 * * *"

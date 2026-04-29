@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flyway-migrations
-  namespace: diffusion
+  
 data:
   V1__init_schema.sql: |
     CREATE SCHEMA IF NOT EXISTS diffusion;
@@ -125,7 +125,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: flyway-migration
-  namespace: diffusion
+  
   # A Job will usually generate a unique suffix, but we want to be able to re-trigger it.
   # We can use annotations or just rely on 'apply' if we want.
 spec:

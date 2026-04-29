@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: redis
-  namespace: diffusion
+  
 spec:
   serviceName: redis
   replicas: 1
@@ -87,7 +87,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: redis
-  namespace: diffusion
+  
 spec:
   selector:
     app: redis

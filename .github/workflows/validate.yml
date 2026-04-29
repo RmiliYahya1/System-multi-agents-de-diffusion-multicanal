@@ -37,3 +37,12 @@ jobs:
           kubectl kustomize infrastructure/kubernetes/overlays/dev/ | kubeconform -strict -summary -
           kubectl kustomize infrastructure/kubernetes/overlays/staging/ | kubeconform -strict -summary -
           kubectl kustomize infrastructure/kubernetes/overlays/prod/ | kubeconform -strict -summary -
+          
+          echo "Verifying prod namespaces..."
+          NAMESPACES=$(kubectl kustomize infrastructure/kubernetes/overlays/prod/ | grep -E "^  namespace: " | sed 's/  namespace: //' | sort -u)
+          EXPECTED="prod-app prod-data prod-gateway prod-observability prod-security"
+          if [ "$(echo $NAMESPACES | xargs)" != "$EXPECTED" ]; then
+            echo "Namespace validation failed! Got: $NAMESPACES"
+            exit 1
+          fi
+          echo "Prod namespaces validated successfully."
