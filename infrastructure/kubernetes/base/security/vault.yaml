@@ -62,25 +62,6 @@ spec:
           configMap:
             name: vault-config
 ---
-# ConfigMap Vault — config HCL
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: vault-config
-  
-data:
-  vault.hcl: |
-    storage "file" {
-      path = "/vault/data"
-    }
-    listener "tcp" {
-      address     = "0.0.0.0:8200"
-      tls_disable = 1
-    }
-    ui = true
-    default_lease_ttl = "168h"
-    max_lease_ttl     = "720h"
----
 # Service Vault
 apiVersion: v1
 kind: Service

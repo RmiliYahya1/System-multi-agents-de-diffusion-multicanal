@@ -18,53 +18,22 @@ spec:
       containers:
         - name: n8n-main
           image: n8nio/n8n:latest
+          envFrom:
+            - configMapRef:
+                name: n8n-config
           env:
-            - name: N8N_HOST
-              value: "0.0.0.0"
-            - name: N8N_PORT
-              value: "5678"
             - name: WEBHOOK_URL
               value: "http://n8n-main:5678/"
-            - name: GENERIC_TIMEZONE
-              value: Africa/Casablanca
-            - name: EXECUTIONS_MODE
-              value: queue
-            - name: QUEUE_HEALTH_CHECK_ACTIVE
-              value: "true"
-            - name: QUEUE_BULL_REDIS_HOST
-              value: redis
-            - name: QUEUE_BULL_REDIS_PORT
-              value: "6379"
-            - name: DB_TYPE
-              value: postgresdb
-            - name: DB_POSTGRESDB_HOST
-              value: postgres
-            - name: DB_POSTGRESDB_PORT
-              value: "5432"
-            - name: DB_POSTGRESDB_DATABASE
-              value: diffusion_db
-            - name: DB_POSTGRESDB_USER
-              value: diffusion_admin
-            - name: N8N_RUNNERS_ENABLED
-              value: "true"
-            - name: N8N_CONCURRENCY_PRODUCTION_LIMIT
-              value: "20"
-            - name: N8N_PAYLOAD_SIZE_MAX
-              value: "64"
-            - name: EXECUTIONS_DATA_PRUNE
-              value: "true"
-            - name: EXECUTIONS_DATA_MAX_AGE
-              value: "168"
-            - name: QUEUE_BULL_REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: diffusion-secrets
-                  key: REDIS_PASSWORD
             - name: DB_POSTGRESDB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: diffusion-secrets
                   key: POSTGRES_PASSWORD
+            - name: QUEUE_BULL_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: diffusion-secrets
+                  key: REDIS_PASSWORD
             - name: N8N_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

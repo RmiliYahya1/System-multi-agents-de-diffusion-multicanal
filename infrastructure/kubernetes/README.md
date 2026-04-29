@@ -69,4 +69,68 @@ La résolution DNS entre les composants se fait via des Services `ExternalName` 
      +---- [Observability] ---+
 ```
 
-*Note temporaire sur les Secrets* : Actuellement, le secret principal `diffusion-secrets` est dupliqué manuellement dans chaque namespace consommateur (data, app, gateway, security). Cette duplication temporaire sera résolue à l'Étape 4 lors de l'intégration du External Secrets Operator.
+Les secrets sont gérés par **External Secrets Operator** (AWS Secrets Manager). Voir [docs/security/SECRETS_MANAGEMENT.md](../../docs/security/SECRETS_MANAGEMENT.md).
+
+## Gestion de la configuration
+
+### ConfigMap vs Secret
+
+- **ConfigMap** : données non-sensibles (URLs, ports, modes, noms de bases, fuseaux horaires). Visibles en clair dans `kubectl describe`.
+- **Secret** : données sensibles (mots de passe, clés d'API, tokens). Gérés via External Secrets Operator depuis AWS Secrets Manager. Voir [docs/security/SECRETS_MANAGEMENT.md](../../docs/security/SECRETS_MANAGEMENT.md).
+
+### Pattern `envFrom`
+
+Les ConfigMaps consommées en variables d'environnement utilisent `envFrom` plutôt que `env` individuel :
+
+```yaml
+envFrom:
+  - configMapRef:
+      name: n8n-config
+env:
+  - name: DB_POSTGRESDB_PASSWORD   # secret uniquement
+    valueFrom:
+      secretKeyRef:
+        name: diffusion-secrets
+        key: POSTGRES_PASSWORD
+```
+
+### Surcharger une variable dans un overlay
+
+Pour modifier une valeur de ConfigMap dans un environnement spécifique, utilisez `configMapGenerator` avec `behavior: merge` dans l'overlay :
+
+```yaml
+# overlays/dev/kustomization.yaml
+configMapGenerator:
+  - name: n8n-config
+    behavior: merge
+    namespace: app
+    literals:
+      - LOG_LEVEL=debug
+      - EXECUTIONS_DATA_MAX_AGE=24
+
+generatorOptions:
+  disableNameSuffixHash: true
+```
+
+### Hot-reload
+
+Le hot-reload des ConfigMaps n'est **pas géré automatiquement** — les Pods doivent être redémarrés après un changement de ConfigMap. Si ce besoin devient critique, envisager **Stakater Reloader** (étape future).
+
+### Tableau récapitulatif — qui consomme quoi
+
+| ConfigMap | Namespace | Consommée par | Mode |
+|---|---|---|---|
+| `postgres-config` | `data` | postgres StatefulSet | `envFrom` |
+| `redis-config` | `data` | redis StatefulSet | `envFrom` |
+| `n8n-config` | `app` | n8n-main, n8n-worker | `envFrom` |
+| `queue-service-config` | `app` | queue-service | `envFrom` |
+| `app-common-config` | `app` | *(réserve future)* | — |
+| `kong-runtime-config` | `gateway` | kong | `envFrom` |
+| `kong-declarative-config` | `gateway` | kong initContainer → volume | fichier |
+| `prometheus-config` | `observability` | prometheus | volume `/etc/prometheus` |
+| `prometheus-rules` | `observability` | prometheus | volume `/etc/prometheus/rules` |
+| `grafana-datasources` | `observability` | grafana | volume `/etc/grafana/provisioning/datasources` |
+| `grafana-dashboards-config` | `observability` | grafana | volume `/etc/grafana/provisioning/dashboards` |
+| `vault-config` | `security` | vault | volume `/vault/config` |
+
+Inventaire complet des variables : [docs/k8s/CONFIG_INVENTORY.md](../../docs/k8s/CONFIG_INVENTORY.md)

@@ -33,20 +33,15 @@ spec:
             - maintenance_work_mem=256MB
             - -c
             - wal_level=replica
+          envFrom:
+            - configMapRef:
+                name: postgres-config
           env:
-            - name: POSTGRES_DB
-              value: diffusion_db
-            - name: POSTGRES_USER
-              value: diffusion_admin
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: diffusion-secrets
                   key: POSTGRES_PASSWORD
-            - name: TZ
-              value: Africa/Casablanca
-            - name: PGTZ
-              value: Africa/Casablanca
           ports:
             - containerPort: 5432
               name: postgres

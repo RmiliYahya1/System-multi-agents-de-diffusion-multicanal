@@ -19,15 +19,10 @@ spec:
         - name: queue-service
           image: diffusion-queue-service:latest
           imagePullPolicy: IfNotPresent  # Image buildée localement
+          envFrom:
+            - configMapRef:
+                name: queue-service-config
           env:
-            - name: REDIS_HOST
-              value: redis
-            - name: REDIS_PORT
-              value: "6379"
-            - name: N8N_WEBHOOK_BASE_URL
-              value: http://n8n-main:5678
-            - name: QUEUE_SERVICE_PORT
-              value: "3002"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:

@@ -24,11 +24,14 @@ spec:
             - -c
             - |
               redis-server \
-                --maxmemory 1gb \
-                --maxmemory-policy allkeys-lru \
-                --appendonly yes \
+                --maxmemory $REDIS_MAXMEMORY \
+                --maxmemory-policy $REDIS_MAXMEMORY_POLICY \
+                --appendonly $REDIS_APPENDONLY \
                 --save 60 1000 \
-                --requirepass $(REDIS_PASSWORD)
+                --requirepass $REDIS_PASSWORD
+          envFrom:
+            - configMapRef:
+                name: redis-config
           env:
             - name: REDIS_PASSWORD
               valueFrom:
