@@ -4,7 +4,13 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
-  
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/version: "2.51.0"
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
   selector:
@@ -14,10 +20,25 @@ spec:
     metadata:
       labels:
         app: prometheus
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/instance: prometheus
+        app.kubernetes.io/version: "2.51.0"
+        app.kubernetes.io/component: monitoring
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/managed-by: kustomize
     spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: prometheus
           image: prom/prometheus:v2.51.0
+          imagePullPolicy: IfNotPresent
           args:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus
@@ -25,6 +46,11 @@ spec:
           ports:
             - containerPort: 9090
               name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: prometheus-config
               mountPath: /etc/prometheus
@@ -32,13 +58,33 @@ spec:
               mountPath: /etc/prometheus/rules
             - name: prometheus-data
               mountPath: /prometheus
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            periodSeconds: 10
+            failureThreshold: 3
           resources:
             limits:
-              memory: 1Gi
+              memory: 2Gi
               cpu: "1"
             requests:
-              memory: 256Mi
-              cpu: "100m"
+              memory: 1Gi
+              cpu: "250m"
       volumes:
         - name: prometheus-config
           configMap:
@@ -49,13 +95,15 @@ spec:
         - name: prometheus-data
           persistentVolumeClaim:
             claimName: prometheus-pvc
+        - name: tmp
+          emptyDir: {}
 ---
 # Service Prometheus
 apiVersion: v1
 kind: Service
 metadata:
   name: prometheus
-  
+
 spec:
   selector:
     app: prometheus
@@ -69,7 +117,13 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
-  
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/version: "10.4.18"
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
   selector:
@@ -79,10 +133,29 @@ spec:
     metadata:
       labels:
         app: grafana
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/instance: grafana
+        app.kubernetes.io/version: "10.4.18"
+        app.kubernetes.io/component: dashboard
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/managed-by: kustomize
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
     spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: grafana
-          image: grafana/grafana:10.4.0
+          image: grafana/grafana:10.4.18
+          imagePullPolicy: IfNotPresent
           env:
             - name: GF_SECURITY_ADMIN_USER
               value: admin
@@ -96,6 +169,14 @@ spec:
           ports:
             - containerPort: 3000
               name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            # EXCEPTION : readOnlyRootFilesystem: false
+            # Grafana écrit plugins, sessions SQLite et fichiers temp dans /var/lib/grafana.
+            # Le PVC grafana-pvc est monté en écriture — exception acceptée.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: grafana-data
               mountPath: /var/lib/grafana
@@ -103,6 +184,18 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources
             - name: grafana-dashboards-config
               mountPath: /etc/grafana/provisioning/dashboards
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 30
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /api/health
@@ -132,7 +225,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: grafana
-  
+
 spec:
   selector:
     app: grafana
