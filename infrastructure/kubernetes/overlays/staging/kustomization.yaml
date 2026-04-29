@@ -7,6 +7,11 @@ resources:
   - ../../base
 
 patches:
+  - path: patches/prometheus-config-staging.yaml
+    target:
+      version: v1
+      kind: ConfigMap
+      name: prometheus-config
   - path: patches/ingress-host-staging.yaml
     target:
       kind: Ingress
@@ -147,6 +152,22 @@ patches:
       - op: replace
         path: /spec/externalName
         value: queue-service.staging-app.svc.cluster.local
+
+configMapGenerator:
+  - name: n8n-config
+    behavior: merge
+    namespace: app
+    literals:
+      - LOG_LEVEL=info
+      - EXECUTIONS_DATA_MAX_AGE=72
+  - name: queue-service-config
+    behavior: merge
+    namespace: app
+    literals:
+      - NODE_ENV=staging
+
+generatorOptions:
+  disableNameSuffixHash: true
 
 commonLabels:
   environment: staging

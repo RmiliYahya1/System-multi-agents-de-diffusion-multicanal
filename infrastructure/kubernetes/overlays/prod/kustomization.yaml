@@ -7,6 +7,11 @@ resources:
   - ../../base
 
 patches:
+  - path: patches/prometheus-config-prod.yaml
+    target:
+      version: v1
+      kind: ConfigMap
+      name: prometheus-config
   - path: patches/ingress-host-prod.yaml
     target:
       kind: Ingress
@@ -149,6 +154,23 @@ patches:
       - op: replace
         path: /spec/externalName
         value: queue-service.prod-app.svc.cluster.local
+
+configMapGenerator:
+  - name: n8n-config
+    behavior: merge
+    namespace: app
+    literals:
+      - LOG_LEVEL=info
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=20
+  - name: queue-service-config
+    behavior: merge
+    namespace: app
+    literals:
+      - NODE_ENV=production
+
+generatorOptions:
+  disableNameSuffixHash: true
 
 commonLabels:
   environment: prod

@@ -9,6 +9,11 @@ resources:
   - local-secrets.yaml
 
 patches:
+  - path: patches/prometheus-config-dev.yaml
+    target:
+      version: v1
+      kind: ConfigMap
+      name: prometheus-config
   - path: patches/ingress-host-localhost.yaml
     target:
       kind: Ingress
@@ -151,6 +156,25 @@ patches:
         path: /spec/externalName
         value: queue-service.dev-app.svc.cluster.local
 
+
+configMapGenerator:
+  - name: n8n-config
+    behavior: merge
+    namespace: app
+    literals:
+      - LOG_LEVEL=debug
+      - N8N_LOG_LEVEL=debug
+      - EXECUTIONS_DATA_MAX_AGE=24
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=5
+  - name: queue-service-config
+    behavior: merge
+    namespace: app
+    literals:
+      - LOG_LEVEL=debug
+      - NODE_ENV=development
+
+generatorOptions:
+  disableNameSuffixHash: true
 
 commonLabels:
   environment: dev

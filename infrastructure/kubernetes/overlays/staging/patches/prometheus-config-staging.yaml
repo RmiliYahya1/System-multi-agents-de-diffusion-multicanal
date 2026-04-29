@@ -1,0 +1,31 @@
+- op: replace
+  path: /data/prometheus.yml
+  value: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: diffusion-staging
+        environment: staging
+
+    rule_files:
+      - /etc/prometheus/rules/*.yaml
+
+    scrape_configs:
+      - job_name: 'queue-service'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['queue-service:3002']
+
+      - job_name: 'n8n'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['n8n-main:5678']
+
+      - job_name: 'redis'
+        static_configs:
+          - targets: ['redis-exporter:9121']
+
+      - job_name: 'postgres'
+        static_configs:
+          - targets: ['postgres-exporter:9187']
