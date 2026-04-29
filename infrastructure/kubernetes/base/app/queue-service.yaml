@@ -4,21 +4,51 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: queue-service
-  
+  labels:
+    app.kubernetes.io/name: queue-service
+    app.kubernetes.io/instance: queue-service
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: microservice
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: queue-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: queue-service
+        app.kubernetes.io/name: queue-service
+        app.kubernetes.io/instance: queue-service
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/component: microservice
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/managed-by: kustomize
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3002"
+        prometheus.io/path: "/metrics"
     spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: queue-service
-          image: diffusion-queue-service:latest
-          imagePullPolicy: IfNotPresent  # Image buildée localement
+          # Image ECR prod — surchargée en dev par overlays/dev/patches/queue-service-image-local.yaml
+          image: ACCOUNT_ID.dkr.ecr.eu-west-3.amazonaws.com/diffusion-queue-service:v1.0.0
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: queue-service-config
@@ -31,6 +61,26 @@ spec:
           ports:
             - containerPort: 3002
               name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            periodSeconds: 30
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /health
@@ -44,13 +94,16 @@ spec:
             requests:
               memory: 128Mi
               cpu: "100m"
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 # Service queue-service
 apiVersion: v1
 kind: Service
 metadata:
   name: queue-service
-  
+
 spec:
   selector:
     app: queue-service

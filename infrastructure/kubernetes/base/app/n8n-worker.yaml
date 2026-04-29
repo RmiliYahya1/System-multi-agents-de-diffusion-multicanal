@@ -4,21 +4,48 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: n8n-worker
-  
+  labels:
+    app.kubernetes.io/name: n8n-worker
+    app.kubernetes.io/instance: n8n-worker
+    app.kubernetes.io/version: "1.78.1"
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 3
   selector:
     matchLabels:
       app: n8n-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
   template:
     metadata:
       labels:
         app: n8n-worker
+        app.kubernetes.io/name: n8n-worker
+        app.kubernetes.io/instance: n8n-worker
+        app.kubernetes.io/version: "1.78.1"
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/managed-by: kustomize
     spec:
+      # 5 minutes : un worker peut être au milieu d'un job long (ex : publication LinkedIn)
+      terminationGracePeriodSeconds: 300
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: n8n-worker
-          image: n8nio/n8n:latest
-          args: ["worker"]        # ← Différence clé avec n8n-main (args = CMD en K8s)
+          image: n8nio/n8n:1.78.1
+          imagePullPolicy: IfNotPresent
+          args: ["worker"]
           envFrom:
             - configMapRef:
                 name: n8n-config
@@ -38,20 +65,62 @@ spec:
                 secretKeyRef:
                   name: diffusion-secrets
                   key: N8N_ENCRYPTION_KEY
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: n8n-home
+              mountPath: /home/node/.n8n
+            - name: tmp
+              mountPath: /tmp
+          # NOTE : pgrep est utilisé car l'image n8n ne contient pas redis-cli.
+          # La connectivité Redis ne peut donc pas être vérifiée directement en readiness.
+          # À valider en staging — envisager un script healthcheck custom si nécessaire.
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'n8n' > /dev/null"
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'n8n' > /dev/null"
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'n8n' > /dev/null"
+            periodSeconds: 10
+            failureThreshold: 3
           resources:
             limits:
               memory: 1.5Gi
               cpu: "1500m"
             requests:
               memory: 256Mi
-              cpu: "250m"       # Requis pour que HPA calcule le %
+              cpu: "250m"
+      volumes:
+        - name: n8n-home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 # HPA — Auto-scale workers selon charge CPU
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: n8n-worker-hpa
-  
+
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

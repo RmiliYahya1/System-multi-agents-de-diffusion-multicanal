@@ -4,20 +4,50 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: n8n-main
-  
+  labels:
+    app.kubernetes.io/name: n8n-main
+    app.kubernetes.io/instance: n8n-main
+    app.kubernetes.io/version: "1.78.1"
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: n8n-main
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: n8n-main
+        app.kubernetes.io/name: n8n-main
+        app.kubernetes.io/instance: n8n-main
+        app.kubernetes.io/version: "1.78.1"
+        app.kubernetes.io/component: workflow-engine
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/managed-by: kustomize
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5678"
+        prometheus.io/path: "/metrics"
     spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: n8n-main
-          image: n8nio/n8n:latest
+          image: n8nio/n8n:1.78.1
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: n8n-config
@@ -42,6 +72,23 @@ spec:
           ports:
             - containerPort: 5678
               name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: n8n-home
+              mountPath: /home/node/.n8n
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 5678
+            # n8n peut être très lent au premier boot (init DB + migrations)
+            failureThreshold: 60
+            periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /healthz
@@ -63,13 +110,18 @@ spec:
             requests:
               memory: 512Mi
               cpu: "500m"
+      volumes:
+        - name: n8n-home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 # Service n8n-main
 apiVersion: v1
 kind: Service
 metadata:
   name: n8n-main
-  
+
 spec:
   selector:
     app: n8n-main
