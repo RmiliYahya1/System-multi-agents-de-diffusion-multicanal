@@ -165,7 +165,7 @@ services:
           memory: 1.5G
 
   queue-service:
-    build: ./queue-service
+    build: ../queue-service
     container_name: diffusion-queue-service-prod
     restart: unless-stopped
     environment:
