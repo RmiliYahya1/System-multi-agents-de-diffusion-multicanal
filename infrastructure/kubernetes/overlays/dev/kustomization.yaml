@@ -6,6 +6,7 @@ namePrefix: dev-
 resources:
   - ../../base
   - patches/nodeports.yaml
+  - local-secrets.yaml
 
 patches:
   - path: patches/ingress-host-localhost.yaml
@@ -14,6 +15,7 @@ patches:
       name: diffusion-ingress
   - path: patches/reduce-replicas.yaml
   - path: patches/reduce-resources.yaml
+  - path: patches/disable-external-secrets.yaml
   - target:
       namespace: data
     patch: |-
@@ -44,6 +46,12 @@ patches:
       - op: replace
         path: /metadata/namespace
         value: dev-security
+  - target:
+      namespace: external-secrets
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: dev-external-secrets
   - target:
       kind: Namespace
       name: data
@@ -79,6 +87,13 @@ patches:
       - op: replace
         path: /metadata/name
         value: dev-security
+  - target:
+      kind: Namespace
+      name: external-secrets
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: dev-external-secrets
   - target:
       kind: Service
       name: postgres

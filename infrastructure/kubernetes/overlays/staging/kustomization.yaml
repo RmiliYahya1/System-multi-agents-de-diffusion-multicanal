@@ -12,6 +12,7 @@ patches:
       kind: Ingress
       name: diffusion-ingress
   - path: patches/storage-class-gp3.yaml
+  - path: patches/external-secrets-env.yaml
   - target:
       namespace: data
     patch: |-
@@ -42,6 +43,12 @@ patches:
       - op: replace
         path: /metadata/namespace
         value: staging-security
+  - target:
+      namespace: external-secrets
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: staging-external-secrets
   - target:
       kind: Namespace
       name: data
@@ -77,6 +84,13 @@ patches:
       - op: replace
         path: /metadata/name
         value: staging-security
+  - target:
+      kind: Namespace
+      name: external-secrets
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: staging-external-secrets
   - target:
       kind: Service
       name: postgres
