@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: diffusion-staging
+
+resources:
+  - ../../base
+
+patches:
+  - path: patches/ingress-host-staging.yaml
+    target:
+      kind: Ingress
+      name: diffusion-ingress
+  - path: patches/storage-class-gp3.yaml
+
+commonLabels:
+  environment: staging
+
+images:
+  - name: diffusion-queue-service
+    newTag: staging
