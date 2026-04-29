@@ -12,6 +12,8 @@ resources:
   - redis.yaml
   - external-secret-data.yaml
   - external-secret-pgadmin.yaml
+  - configmap-postgres.yaml
+  - configmap-redis.yaml
 commonLabels:
   layer: data
   app.kubernetes.io/part-of: diffusion-platform

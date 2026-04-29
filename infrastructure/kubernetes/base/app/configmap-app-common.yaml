@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-common-config
+data:
+  TZ: Africa/Casablanca
+  LOG_LEVEL: info

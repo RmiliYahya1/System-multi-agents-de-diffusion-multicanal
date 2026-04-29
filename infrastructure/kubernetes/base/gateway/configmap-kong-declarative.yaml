@@ -1,8 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: kong-config
-  
+  name: kong-declarative-config
 data:
   kong.yml: |
     _format_version: "3.0"
@@ -24,5 +23,5 @@ data:
     jwt_secrets:
       - consumer: client_demo_01
         key: "emetteur_demo_01"
-        secret: "Cl3_S3cr3t3_B1ind3e_2026_SUPER_SECRET_KEY!"
+        secret: "${KONG_JWT_SECRET}"
         algorithm: HS256

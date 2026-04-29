@@ -4,6 +4,7 @@ namespace: security
 resources:
   - namespace.yaml
   - external-secret-vault.yaml
+  - configmap-vault.yaml
   - vault.yaml
 commonLabels:
   layer: security

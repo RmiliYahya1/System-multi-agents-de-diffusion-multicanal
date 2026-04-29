@@ -4,7 +4,10 @@ namespace: observability
 resources:
   - namespace.yaml
   - monitoring.yaml
-  - prometheus-cm.yaml
+  - configmap-prometheus.yaml
+  - configmap-prometheus-rules.yaml
+  - configmap-grafana-datasources.yaml
+  - configmap-grafana-dashboards.yaml
   - external-services.yaml
   - external-secret-grafana.yaml
 commonLabels:

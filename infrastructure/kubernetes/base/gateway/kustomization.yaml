@@ -4,7 +4,8 @@ namespace: gateway
 resources:
   - namespace.yaml
   - ingress.yaml
-  - kong-config.yaml
+  - configmap-kong-declarative.yaml
+  - configmap-kong-runtime.yaml
   - kong.yaml
   - external-services.yaml
   - external-secret-gateway.yaml

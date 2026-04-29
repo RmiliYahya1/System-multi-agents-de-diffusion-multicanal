@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+data:
+  POSTGRES_USER: diffusion_admin
+  POSTGRES_DB: diffusion_db
+  TZ: Africa/Casablanca
+  PGTZ: Africa/Casablanca

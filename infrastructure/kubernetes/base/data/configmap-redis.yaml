@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+data:
+  REDIS_MAXMEMORY: "1gb"
+  REDIS_MAXMEMORY_POLICY: allkeys-lru
+  REDIS_APPENDONLY: "yes"
