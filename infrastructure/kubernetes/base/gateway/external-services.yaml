@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n-main
+  namespace: gateway
+spec:
+  type: ExternalName
+  externalName: n8n-main.app.svc.cluster.local
