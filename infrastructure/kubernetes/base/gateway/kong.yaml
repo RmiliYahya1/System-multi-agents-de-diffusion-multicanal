@@ -4,20 +4,52 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kong
-
+  labels:
+    app.kubernetes.io/name: kong
+    app.kubernetes.io/instance: kong
+    app.kubernetes.io/version: "3.6.1"
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: kong
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: kong
+        app.kubernetes.io/name: kong
+        app.kubernetes.io/instance: kong
+        app.kubernetes.io/version: "3.6.1"
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/managed-by: kustomize
     spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: substitute-secrets
           image: busybox:1.36
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 100
+            capabilities:
+              drop: [ALL]
           command:
             - sh
             - -c
@@ -37,7 +69,8 @@ spec:
               mountPath: /output
       containers:
         - name: kong
-          image: kong:3.6
+          image: kong:3.6.1
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: kong-runtime-config
@@ -46,9 +79,30 @@ spec:
               name: proxy
             - containerPort: 8001
               name: admin
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: kong-config-rendered
               mountPath: /usr/local/kong/declarative
+            - name: tmp
+              mountPath: /tmp
+            - name: kong-logs
+              mountPath: /usr/local/kong/logs
+          startupProbe:
+            httpGet:
+              path: /status
+              port: 8001
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 8001
+            periodSeconds: 30
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /status
@@ -67,6 +121,10 @@ spec:
           configMap:
             name: kong-declarative-config
         - name: kong-config-rendered
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: kong-logs
           emptyDir: {}
 ---
 # Service Kong
