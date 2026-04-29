@@ -3,7 +3,7 @@ kind: Kustomization
 namespace: security
 resources:
   - namespace.yaml
-  - secrets.yaml
+  - external-secret-vault.yaml
   - vault.yaml
 commonLabels:
   layer: security

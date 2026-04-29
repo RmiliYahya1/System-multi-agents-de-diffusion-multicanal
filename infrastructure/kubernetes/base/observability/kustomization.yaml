@@ -6,6 +6,7 @@ resources:
   - monitoring.yaml
   - prometheus-cm.yaml
   - external-services.yaml
+  - external-secret-grafana.yaml
 commonLabels:
   layer: observability
   app.kubernetes.io/part-of: diffusion-platform

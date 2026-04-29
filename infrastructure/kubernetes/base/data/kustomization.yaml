@@ -10,7 +10,8 @@ resources:
   - postgres.yaml
   - pvcs.yaml
   - redis.yaml
-  - secrets.yaml
+  - external-secret-data.yaml
+  - external-secret-pgadmin.yaml
 commonLabels:
   layer: data
   app.kubernetes.io/part-of: diffusion-platform

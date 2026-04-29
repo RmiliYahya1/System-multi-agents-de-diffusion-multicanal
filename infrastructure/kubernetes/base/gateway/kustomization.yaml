@@ -7,7 +7,7 @@ resources:
   - kong-config.yaml
   - kong.yaml
   - external-services.yaml
-  - secrets.yaml
+  - external-secret-gateway.yaml
 commonLabels:
   layer: gateway
   app.kubernetes.io/part-of: diffusion-platform

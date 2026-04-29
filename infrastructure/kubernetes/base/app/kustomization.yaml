@@ -7,7 +7,7 @@ resources:
   - n8n-worker.yaml
   - queue-service.yaml
   - external-services.yaml
-  - secrets.yaml
+  - external-secret-app.yaml
 commonLabels:
   layer: app
   app.kubernetes.io/part-of: diffusion-platform
