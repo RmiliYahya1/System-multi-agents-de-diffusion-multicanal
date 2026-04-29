@@ -9,6 +9,10 @@ resources:
   - local-secrets.yaml
 
 patches:
+  - path: patches/queue-service-image-local.yaml
+    target:
+      kind: Deployment
+      name: queue-service
   - path: patches/prometheus-config-dev.yaml
     target:
       version: v1
@@ -180,5 +184,20 @@ commonLabels:
   environment: dev
 
 images:
-  - name: diffusion-queue-service
+  - name: n8nio/n8n
+    newTag: latest
+  - name: postgres
+    newTag: latest
+  - name: redis
+    newTag: latest
+  - name: ACCOUNT_ID.dkr.ecr.eu-west-3.amazonaws.com/diffusion-queue-service
+    newName: diffusion-queue-service
+    newTag: latest
+  - name: kong
+    newTag: latest
+  - name: hashicorp/vault
+    newTag: latest
+  - name: prom/prometheus
+    newTag: latest
+  - name: grafana/grafana
     newTag: latest

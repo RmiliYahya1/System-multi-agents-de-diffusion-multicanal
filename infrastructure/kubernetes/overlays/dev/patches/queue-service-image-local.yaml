@@ -1,0 +1,15 @@
+---
+# Surcharge de l'image queue-service pour le dev local.
+# En dev, on utilise l'image buildée localement via docker compose
+# au lieu de l'image ECR définie dans la base.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queue-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: queue-service
+          image: diffusion-queue-service:latest
+          imagePullPolicy: IfNotPresent

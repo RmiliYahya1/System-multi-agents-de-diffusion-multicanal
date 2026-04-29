@@ -46,3 +46,32 @@ jobs:
             exit 1
           fi
           echo "Prod namespaces validated successfully."
+
+  validate-kube-score:
+    name: Validate with kube-score
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Install kube-score
+        run: |
+          wget https://github.com/zegl/kube-score/releases/download/v1.18.0/kube-score_1.18.0_linux_amd64.tar.gz
+          tar xf kube-score_1.18.0_linux_amd64.tar.gz
+          sudo mv kube-score /usr/local/bin/
+
+      - name: Score manifests with kube-score
+        run: |
+          # NetworkPolicies ignorées — étape 9 du plan de hardening
+          for env in dev staging prod; do
+            echo "=== kube-score: $env ==="
+            kubectl kustomize infrastructure/kubernetes/overlays/$env/ \
+              | kube-score score --output-format ci \
+                --ignore-test pod-networkpolicy \
+                - || true
+          done
