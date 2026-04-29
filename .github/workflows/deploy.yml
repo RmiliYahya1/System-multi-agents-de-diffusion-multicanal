@@ -62,6 +62,4 @@ jobs:
             
             echo "Applying Kubernetes manifests..."
             # On n'applique que ce qui est 'sans risque' automatiquement
-            kubectl apply -f infrastructure/kubernetes/queue-service/queue-service.yaml
-            kubectl apply -f infrastructure/kubernetes/n8n/
-            kubectl apply -f infrastructure/kubernetes/gateway/
+            kubectl apply -k infrastructure/kubernetes/overlays/prod/

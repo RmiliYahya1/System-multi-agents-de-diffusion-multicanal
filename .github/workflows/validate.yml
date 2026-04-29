@@ -34,4 +34,6 @@ jobs:
       - name: Validate YAML resources
         run: |
           echo "Validating Kubernetes manifests..."
-          kubeconform -strict -summary -output json infrastructure/kubernetes/
+          kubectl kustomize infrastructure/kubernetes/overlays/dev/ | kubeconform -strict -summary -
+          kubectl kustomize infrastructure/kubernetes/overlays/staging/ | kubeconform -strict -summary -
+          kubectl kustomize infrastructure/kubernetes/overlays/prod/ | kubeconform -strict -summary -
