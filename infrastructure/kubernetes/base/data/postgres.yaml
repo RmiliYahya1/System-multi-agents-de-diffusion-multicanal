@@ -4,10 +4,18 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
-  
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/version: "16.6"
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
   serviceName: postgres
   replicas: 1
+  updateStrategy:
+    type: OnDelete
   selector:
     matchLabels:
       app: postgres
@@ -15,10 +23,30 @@ spec:
     metadata:
       labels:
         app: postgres
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/instance: postgres
+        app.kubernetes.io/version: "16.6"
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/managed-by: kustomize
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: "/metrics"
     spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
-          image: postgres:16-alpine
+          image: postgres:16.6-alpine
+          imagePullPolicy: IfNotPresent
           args:
             - postgres
             - -c
@@ -45,9 +73,23 @@ spec:
           ports:
             - containerPort: 5432
               name: postgres
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data
+            - name: tmp
+              mountPath: /tmp
+            - name: postgres-run
+              mountPath: /var/run/postgresql
+          startupProbe:
+            exec:
+              command: [pg_isready, -U, diffusion_admin, -d, diffusion_db]
+            failureThreshold: 30
+            periodSeconds: 10
           readinessProbe:
             exec:
               command:
@@ -74,9 +116,16 @@ spec:
             requests:
               memory: 512Mi
               cpu: "250m"
-              
+
         - name: postgres-exporter
           image: prometheuscommunity/postgres-exporter:v0.15.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+            capabilities:
+              drop: [ALL]
           env:
             - name: DATA_SOURCE_URI
               value: "localhost:5432/diffusion_db?sslmode=disable"
@@ -90,18 +139,22 @@ spec:
           ports:
             - containerPort: 9187
               name: metrics
-              
+
       volumes:
         - name: postgres-data
           persistentVolumeClaim:
             claimName: postgres-pvc
+        - name: tmp
+          emptyDir: {}
+        - name: postgres-run
+          emptyDir: {}
 ---
 # Service PostgreSQL (ClusterIP externe / headless pour metrics)
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  
+
 spec:
   selector:
     app: postgres

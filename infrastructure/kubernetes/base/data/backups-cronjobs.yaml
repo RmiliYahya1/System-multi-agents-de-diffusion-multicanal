@@ -2,19 +2,43 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: postgres-backup
-  
+  labels:
+    app.kubernetes.io/name: postgres-backup
+    app.kubernetes.io/instance: postgres-backup
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
-  # Exécution tous les jours à 03:00 (heure du serveur)
   schedule: "0 3 * * *"
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 1800
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: postgres-backup
+            app.kubernetes.io/component: backup
+            app.kubernetes.io/part-of: diffusion-platform
         spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
           containers:
           - name: pg-backup
-            image: postgres:16-alpine
+            image: postgres:16.6-alpine
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
             command:
             - /bin/sh
             - -c
@@ -22,9 +46,9 @@ spec:
               DATE=$(date +%Y%m%d_%H%M%S)
               echo "Starting PostgreSQL backup: diffusion_db_backup_$DATE.sql.gz"
               export PGPASSWORD=$POSTGRES_PASSWORD
-              pg_dump -h postgres -U diffusion_admin -d diffusion_db | gzip > /backups/diffusion_db_backup_$DATE.sql.gz
+              pg_dump -h postgres -U diffusion_admin -d diffusion_db | gzip > /tmp/diffusion_db_backup_$DATE.sql.gz
+              cp /tmp/diffusion_db_backup_$DATE.sql.gz /backups/diffusion_db_backup_$DATE.sql.gz
               echo "Backup completed successfully."
-              # Conserver uniquement les 7 derniers jours
               find /backups -name "diffusion_db_backup_*.sql.gz" -type f -mtime +7 -delete
             env:
             - name: POSTGRES_PASSWORD
@@ -35,29 +59,63 @@ spec:
             volumeMounts:
             - name: backup-storage
               mountPath: /backups
+            - name: tmp
+              mountPath: /tmp
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
           restartPolicy: OnFailure
           volumes:
           - name: backup-storage
             persistentVolumeClaim:
               claimName: backups-pvc
+          - name: tmp
+            emptyDir: {}
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: redis-backup
-  
+  labels:
+    app.kubernetes.io/name: redis-backup
+    app.kubernetes.io/instance: redis-backup
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
-  # Exécution tous les jours à 03:30
   schedule: "30 3 * * *"
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 1800
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: redis-backup
+            app.kubernetes.io/component: backup
+            app.kubernetes.io/part-of: diffusion-platform
         spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
           containers:
           - name: redis-backup
-            image: redis:7-alpine
+            image: redis:7.4.1-alpine
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
             command:
             - /bin/sh
             - -c
@@ -65,14 +123,9 @@ spec:
               DATE=$(date +%Y%m%d_%H%M%S)
               echo "Triggering Redis BGSAVE via redis-cli"
               redis-cli -h redis -a $REDIS_PASSWORD BGSAVE
-              
-              # Wait a few seconds for the BGSAVE to start and create the dump.rdb
               sleep 10
-              
-              # Dans Redis.yaml, le PVC redis-data est monté. 
-              # Mais le cronjob ne peut pas monter le même PVC ReadWriteOnce en même temps 
-              # s'il est sur un autre noeud (k3s local c'est bon, mais en multi-nodes ça bloque).
-              # On va donc se connecter à redis, lui demander de save, et la persistance AOF/RDB s'en chargera dans son propre volume.
+              # Dans Redis.yaml, le PVC redis-data est monté.
+              # Le cronjob déclenche BGSAVE — la persistance AOF/RDB s'en charge dans son propre volume.
               echo "Redis save triggered. Note: Real backups of the appendonly.aof require AWS S3 or a separate script to copy the RDB."
             env:
             - name: REDIS_PASSWORD
@@ -80,4 +133,16 @@ spec:
                 secretKeyRef:
                   name: diffusion-secrets
                   key: REDIS_PASSWORD
+            volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
           restartPolicy: OnFailure
+          volumes:
+          - name: tmp
+            emptyDir: {}

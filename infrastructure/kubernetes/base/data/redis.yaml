@@ -4,10 +4,18 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: redis
-  
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: redis
+    app.kubernetes.io/version: "7.4.1"
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
   serviceName: redis
   replicas: 1
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app: redis
@@ -15,10 +23,29 @@ spec:
     metadata:
       labels:
         app: redis
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/instance: redis
+        app.kubernetes.io/version: "7.4.1"
+        app.kubernetes.io/component: cache
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/managed-by: kustomize
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+        prometheus.io/path: "/metrics"
     spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
-          image: redis:7-alpine
+          image: redis:7.4.1-alpine
+          imagePullPolicy: IfNotPresent
           command:
             - sh
             - -c
@@ -41,9 +68,24 @@ spec:
           ports:
             - containerPort: 6379
               name: redis
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: redis-data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a $REDIS_PASSWORD ping
+            failureThreshold: 30
+            periodSeconds: 5
           readinessProbe:
             exec:
               command:
@@ -64,10 +106,17 @@ spec:
             limits:
               memory: 1.5Gi
             requests:
-              memory: 256Mi
-              
+              cpu: 100m
+              memory: 512Mi
+
         - name: redis-exporter
           image: oliver006/redis_exporter:v1.58.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           env:
             - name: REDIS_ADDR
               value: "redis://localhost:6379"
@@ -79,18 +128,20 @@ spec:
           ports:
             - containerPort: 9121
               name: metrics
-              
+
       volumes:
         - name: redis-data
           persistentVolumeClaim:
             claimName: redis-pvc
+        - name: tmp
+          emptyDir: {}
 ---
 # Service Redis (ClusterIP externe / headless pour metrics)
 apiVersion: v1
 kind: Service
 metadata:
   name: redis
-  
+
 spec:
   selector:
     app: redis
