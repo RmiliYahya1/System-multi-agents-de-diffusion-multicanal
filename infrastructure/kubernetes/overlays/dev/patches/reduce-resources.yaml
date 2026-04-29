@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
-  namespace: diffusion
+  
 spec:
   template:
     spec:
@@ -16,7 +16,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: redis
-  namespace: diffusion
+  
 spec:
   template:
     spec:
@@ -30,7 +30,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: n8n-main
-  namespace: diffusion
+  
 spec:
   template:
     spec:
@@ -44,7 +44,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: n8n-worker
-  namespace: diffusion
+  
 spec:
   template:
     spec:

@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: diffusion-dev
+namePrefix: dev-
 
 resources:
   - ../../base
@@ -14,6 +14,128 @@ patches:
       name: diffusion-ingress
   - path: patches/reduce-replicas.yaml
   - path: patches/reduce-resources.yaml
+  - target:
+      namespace: data
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: dev-data
+  - target:
+      namespace: app
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: dev-app
+  - target:
+      namespace: gateway
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: dev-gateway
+  - target:
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: dev-observability
+  - target:
+      namespace: security
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: dev-security
+  - target:
+      kind: Namespace
+      name: data
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: dev-data
+  - target:
+      kind: Namespace
+      name: app
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: dev-app
+  - target:
+      kind: Namespace
+      name: gateway
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: dev-gateway
+  - target:
+      kind: Namespace
+      name: observability
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: dev-observability
+  - target:
+      kind: Namespace
+      name: security
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: dev-security
+  - target:
+      kind: Service
+      name: postgres
+      namespace: app
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: postgres.dev-data.svc.cluster.local
+  - target:
+      kind: Service
+      name: redis
+      namespace: app
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: redis.dev-data.svc.cluster.local
+  - target:
+      kind: Service
+      name: n8n-main
+      namespace: gateway
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: n8n-main.dev-app.svc.cluster.local
+  - target:
+      kind: Service
+      name: postgres-exporter
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: postgres.dev-data.svc.cluster.local
+  - target:
+      kind: Service
+      name: redis-exporter
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: redis.dev-data.svc.cluster.local
+  - target:
+      kind: Service
+      name: n8n-main
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: n8n-main.dev-app.svc.cluster.local
+  - target:
+      kind: Service
+      name: queue-service
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: queue-service.dev-app.svc.cluster.local
+
 
 commonLabels:
   environment: dev

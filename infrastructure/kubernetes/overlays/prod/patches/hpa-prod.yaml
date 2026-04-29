@@ -2,7 +2,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: n8n-worker-hpa
-  namespace: diffusion
+  
 spec:
   minReplicas: 3
   maxReplicas: 15

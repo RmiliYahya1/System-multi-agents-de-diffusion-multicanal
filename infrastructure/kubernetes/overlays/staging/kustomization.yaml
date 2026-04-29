@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: diffusion-staging
+namePrefix: staging-
 
 resources:
   - ../../base
@@ -12,6 +12,127 @@ patches:
       kind: Ingress
       name: diffusion-ingress
   - path: patches/storage-class-gp3.yaml
+  - target:
+      namespace: data
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: staging-data
+  - target:
+      namespace: app
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: staging-app
+  - target:
+      namespace: gateway
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: staging-gateway
+  - target:
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: staging-observability
+  - target:
+      namespace: security
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: staging-security
+  - target:
+      kind: Namespace
+      name: data
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: staging-data
+  - target:
+      kind: Namespace
+      name: app
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: staging-app
+  - target:
+      kind: Namespace
+      name: gateway
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: staging-gateway
+  - target:
+      kind: Namespace
+      name: observability
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: staging-observability
+  - target:
+      kind: Namespace
+      name: security
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: staging-security
+  - target:
+      kind: Service
+      name: postgres
+      namespace: app
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: postgres.staging-data.svc.cluster.local
+  - target:
+      kind: Service
+      name: redis
+      namespace: app
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: redis.staging-data.svc.cluster.local
+  - target:
+      kind: Service
+      name: n8n-main
+      namespace: gateway
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: n8n-main.staging-app.svc.cluster.local
+  - target:
+      kind: Service
+      name: postgres-exporter
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: postgres.staging-data.svc.cluster.local
+  - target:
+      kind: Service
+      name: redis-exporter
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: redis.staging-data.svc.cluster.local
+  - target:
+      kind: Service
+      name: n8n-main
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: n8n-main.staging-app.svc.cluster.local
+  - target:
+      kind: Service
+      name: queue-service
+      namespace: observability
+    patch: |-
+      - op: replace
+        path: /spec/externalName
+        value: queue-service.staging-app.svc.cluster.local
 
 commonLabels:
   environment: staging
