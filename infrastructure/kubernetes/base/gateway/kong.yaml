@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kong
-  
+
 spec:
   replicas: 1
   selector:
@@ -15,31 +15,39 @@ spec:
       labels:
         app: kong
     spec:
+      initContainers:
+        - name: substitute-secrets
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /input/kong.yml /output/kong.yml
+              sed -i "s|\${KONG_JWT_SECRET}|$KONG_JWT_SECRET|g" /output/kong.yml
+          env:
+            - name: KONG_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kong-secrets
+                  key: KONG_JWT_SECRET
+          volumeMounts:
+            - name: kong-config-template
+              mountPath: /input
+            - name: kong-config-rendered
+              mountPath: /output
       containers:
         - name: kong
           image: kong:3.6
-          env:
-            - name: KONG_DATABASE
-              value: "off"
-            - name: KONG_DECLARATIVE_CONFIG
-              value: /usr/local/kong/declarative/kong.yml
-            - name: KONG_PROXY_ACCESS_LOG
-              value: /dev/stdout
-            - name: KONG_ADMIN_ACCESS_LOG
-              value: /dev/stdout
-            - name: KONG_PROXY_ERROR_LOG
-              value: /dev/stderr
-            - name: KONG_ADMIN_ERROR_LOG
-              value: /dev/stderr
-            - name: KONG_ADMIN_LISTEN
-              value: 0.0.0.0:8001
+          envFrom:
+            - configMapRef:
+                name: kong-runtime-config
           ports:
             - containerPort: 8000
               name: proxy
             - containerPort: 8001
               name: admin
           volumeMounts:
-            - name: kong-config
+            - name: kong-config-rendered
               mountPath: /usr/local/kong/declarative
           readinessProbe:
             httpGet:
@@ -55,16 +63,18 @@ spec:
               memory: 256Mi
               cpu: "100m"
       volumes:
-        - name: kong-config
+        - name: kong-config-template
           configMap:
-            name: kong-config
+            name: kong-declarative-config
+        - name: kong-config-rendered
+          emptyDir: {}
 ---
 # Service Kong
 apiVersion: v1
 kind: Service
 metadata:
   name: kong
-  
+
 spec:
   selector:
     app: kong
