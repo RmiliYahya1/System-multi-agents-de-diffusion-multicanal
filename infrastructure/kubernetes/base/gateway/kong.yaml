@@ -127,19 +127,47 @@ spec:
         - name: kong-logs
           emptyDir: {}
 ---
-# Service Kong
+# Service kong-proxy — trafic public entrant (via Ingress)
+# Port normalisé sur 80 côté Service, mappe vers containerPort 8000.
 apiVersion: v1
 kind: Service
 metadata:
-  name: kong
-
+  name: kong-proxy
+  labels:
+    app.kubernetes.io/name: kong-proxy
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
+  type: ClusterIP
   selector:
     app: kong
   ports:
     - name: proxy
-      port: 8000
-      targetPort: 8000
+      port: 80
+      targetPort: proxy
+      protocol: TCP
+      appProtocol: http
+---
+# Service kong-admin — API d'administration interne UNIQUEMENT
+# NE DOIT JAMAIS être exposé via Ingress ou NodePort.
+# Accès en dev : kubectl port-forward svc/<prefix>-kong-admin 8001:8001 -n <env>-gateway
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-admin
+  labels:
+    app.kubernetes.io/name: kong-admin
+    app.kubernetes.io/component: gateway-admin
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  type: ClusterIP
+  selector:
+    app: kong
+  ports:
     - name: admin
       port: 8001
-      targetPort: 8001
+      targetPort: admin
+      protocol: TCP
+      appProtocol: http
