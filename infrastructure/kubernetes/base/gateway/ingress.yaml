@@ -1,19 +1,18 @@
 ---
-# Ingress — Point d'entrée unique (remplace Nginx)
-# Docker Desktop expose les NodePort directement
-# L'ingress route vers les bons services
+# Ingress — Point d'entrée unique
+# /webhook/* → kong-proxy (port 80) → Kong → n8n (JWT auth)
+# /*         → n8n-main (port 5678) → n8n UI directement
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: diffusion-ingress
-  
+
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/proxy-body-size: "64m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
 spec:
   rules:
-    # n8n UI + webhooks (via Kong pour /webhook/)
     - host: REPLACE_ME_OVERLAY
       http:
         paths:
@@ -21,13 +20,13 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: kong
+                name: kong-proxy
                 port:
-                  number: 8000
+                  name: proxy         # mappe au port 80 du Service kong-proxy
           - path: /
             pathType: Prefix
             backend:
               service:
                 name: n8n-main
                 port:
-                  number: 5678
+                  name: http          # mappe au port 5678 de l'ExternalName n8n-main
