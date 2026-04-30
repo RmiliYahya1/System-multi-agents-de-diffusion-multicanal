@@ -1,35 +1,96 @@
+---
+# ExternalName alias : postgres-exporter (cross-namespace data → observability)
+# Prometheus scrape le port metrics du StatefulSet postgres via cet alias.
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres-exporter
   namespace: observability
+  labels:
+    app.kubernetes.io/name: postgres-exporter
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: "data"
 spec:
   type: ExternalName
   externalName: postgres.data.svc.cluster.local
+  ports:
+    - name: metrics
+      port: 9187
+      protocol: TCP
+      appProtocol: http
 ---
+# ExternalName alias : redis-exporter (cross-namespace data → observability)
+# Prometheus scrape le port metrics du StatefulSet redis via cet alias.
 apiVersion: v1
 kind: Service
 metadata:
   name: redis-exporter
   namespace: observability
+  labels:
+    app.kubernetes.io/name: redis-exporter
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: "data"
 spec:
   type: ExternalName
   externalName: redis.data.svc.cluster.local
+  ports:
+    - name: metrics
+      port: 9121
+      protocol: TCP
+      appProtocol: http
 ---
+# ExternalName alias : n8n-main (cross-namespace app → observability)
+# Prometheus scrape les métriques n8n via cet alias.
 apiVersion: v1
 kind: Service
 metadata:
   name: n8n-main
   namespace: observability
+  labels:
+    app.kubernetes.io/name: n8n-main
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: "app"
 spec:
   type: ExternalName
   externalName: n8n-main.app.svc.cluster.local
+  ports:
+    - name: http
+      port: 5678
+      protocol: TCP
+      appProtocol: http
 ---
+# ExternalName alias : queue-service (cross-namespace app → observability)
+# Prometheus scrape les métriques queue-service via cet alias.
 apiVersion: v1
 kind: Service
 metadata:
   name: queue-service
   namespace: observability
+  labels:
+    app.kubernetes.io/name: queue-service
+    app.kubernetes.io/component: microservice
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: "app"
 spec:
   type: ExternalName
   externalName: queue-service.app.svc.cluster.local
+  ports:
+    - name: http
+      port: 3002
+      protocol: TCP
+      appProtocol: http

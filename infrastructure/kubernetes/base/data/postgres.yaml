@@ -149,20 +149,28 @@ spec:
         - name: postgres-run
           emptyDir: {}
 ---
-# Service PostgreSQL (ClusterIP externe / headless pour metrics)
+# Service PostgreSQL — Headless (résolution DNS pod-par-pod pour StatefulSet)
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
 spec:
+  clusterIP: None   # Headless pour StatefulSet
   selector:
     app: postgres
   ports:
-    - port: 5432
-      targetPort: 5432
-      name: postgres
-    - port: 9187
-      targetPort: 9187
-      name: metrics
-  clusterIP: None   # Headless pour StatefulSet
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP
+      appProtocol: postgresql
+    - name: metrics
+      port: 9187
+      targetPort: metrics
+      protocol: TCP
+      appProtocol: http

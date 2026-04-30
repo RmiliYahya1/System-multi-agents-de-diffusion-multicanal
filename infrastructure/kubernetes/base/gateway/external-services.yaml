@@ -1,8 +1,26 @@
+---
+# ExternalName alias : n8n-main (cross-namespace app → gateway)
+# Nécessaire car l'Ingress (namespace gateway) ne peut router que vers des Services
+# de son propre namespace. Cet alias permet au kong-declarative-config d'atteindre n8n.
+# IMPORTANT : le patch overlay remplace externalName par la valeur préfixée par env.
 apiVersion: v1
 kind: Service
 metadata:
   name: n8n-main
   namespace: gateway
+  labels:
+    app.kubernetes.io/name: n8n-main
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: "app"
 spec:
   type: ExternalName
   externalName: n8n-main.app.svc.cluster.local
+  ports:
+    - name: http
+      port: 5678
+      protocol: TCP
+      appProtocol: http

@@ -134,3 +134,54 @@ Le hot-reload des ConfigMaps n'est **pas géré automatiquement** — les Pods d
 | `vault-config` | `security` | vault | volume `/vault/config` |
 
 Inventaire complet des variables : [docs/k8s/CONFIG_INVENTORY.md](../../docs/k8s/CONFIG_INVENTORY.md)
+
+---
+
+## Services et exposition
+
+Conventions complètes : [docs/k8s/SERVICES_CONVENTIONS.md](../../docs/k8s/SERVICES_CONVENTIONS.md)
+
+### Tableau de tous les Services (base)
+
+| Nom | Namespace | Type | Port (Service) | targetPort | appProtocol | Exposé via |
+|---|---|---|---|---|---|---|
+| `postgres` | `data` | Headless | 5432 (postgres), 9187 (metrics) | postgres, metrics | postgresql, http | Interne |
+| `redis` | `data` | Headless | 6379 (redis), 9121 (metrics) | redis, metrics | redis, http | Interne |
+| `n8n-main` | `app` | ClusterIP | 5678 (http) | http | http | Ingress → `/` |
+| `queue-service` | `app` | ClusterIP | 3002 (http) | http | http | Interne |
+| `kong-proxy` | `gateway` | ClusterIP | 80 (proxy) | proxy (→8000) | http | Ingress → `/webhook/` |
+| `kong-admin` | `gateway` | ClusterIP | 8001 (admin) | admin | http | **Jamais exposé** |
+| `n8n-main` | `gateway` | ExternalName | 5678 (http) | — | http | Alias Ingress |
+| `vault` | `security` | ClusterIP | 8200 (http) | http | http | Interne |
+| `prometheus` | `observability` | ClusterIP | 9090 (http) | http | http | Interne |
+| `grafana` | `observability` | ClusterIP | 3000 (http) | http | http | Interne |
+| `postgres-exporter` | `observability` | ExternalName | 9187 (metrics) | — | http | Alias scraping |
+| `redis-exporter` | `observability` | ExternalName | 9121 (metrics) | — | http | Alias scraping |
+| `n8n-main` | `observability` | ExternalName | 5678 (http) | — | http | Alias scraping |
+| `queue-service` | `observability` | ExternalName | 3002 (http) | — | http | Alias scraping |
+| `postgres` | `app` | ExternalName | 5432 (postgres) | — | postgresql | Alias DB |
+| `redis` | `app` | ExternalName | 6379 (redis) | — | redis | Alias cache |
+
+### NodePorts dev uniquement (overlay dev)
+
+| Nom | Namespace | nodePort | Cible |
+|---|---|---|---|
+| `n8n-main-nodeport` | `app` | 30678 | n8n UI |
+| `grafana-nodeport` | `observability` | 30300 | Grafana |
+| `queue-service-nodeport` | `app` | 30302 | queue-service |
+| `vault-nodeport` | `security` | 30820 | Vault |
+| `prometheus-nodeport` | `observability` | 30909 | Prometheus |
+| `kong-proxy-nodeport` | `gateway` | 30800 | Kong webhooks |
+
+> **Note** : `kong-admin` n'a **jamais** de NodePort, même en dev.
+> Accès admin : `kubectl port-forward svc/dev-kong-admin 8001:8001 -n dev-gateway`
+
+### Exposition publique
+
+```
+Internet → Ingress ALB (étape 8)
+             ├── /webhook/* → kong-proxy:80 → Kong → n8n-main:5678 (JWT)
+             └── /*         → n8n-main:5678 (direct)
+```
+
+Tous les autres Services sont **exclusivement ClusterIP/Headless** — aucun accès depuis l'extérieur sans passer par l'Ingress.

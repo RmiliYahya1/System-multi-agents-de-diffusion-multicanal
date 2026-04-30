@@ -1,17 +1,48 @@
+---
+# ExternalName alias : postgres (cross-namespace data → app)
+# Permet aux Pods du namespace app de résoudre "postgres" → StatefulSet dans data.
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
   namespace: app
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: "data"
 spec:
   type: ExternalName
   externalName: postgres.data.svc.cluster.local
+  ports:
+    - name: postgres
+      port: 5432
+      protocol: TCP
+      appProtocol: postgresql
 ---
+# ExternalName alias : redis (cross-namespace data → app)
+# Permet aux Pods du namespace app de résoudre "redis" → StatefulSet dans data.
 apiVersion: v1
 kind: Service
 metadata:
   name: redis
   namespace: app
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: "data"
 spec:
   type: ExternalName
   externalName: redis.data.svc.cluster.local
+  ports:
+    - name: redis
+      port: 6379
+      protocol: TCP
+      appProtocol: redis
