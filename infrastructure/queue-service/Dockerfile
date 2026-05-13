@@ -2,11 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copier les dépendances
-COPY package.json ./
-
-# Installer les dépendances
-RUN npm install --production
+COPY package.json package-lock.json ./
+RUN npm ci --only=production
 
 # Copier le code
 COPY index.js ./
