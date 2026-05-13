@@ -185,19 +185,19 @@ commonLabels:
 
 images:
   - name: n8nio/n8n
-    newTag: latest
+    newTag: "1.78.1"
   - name: postgres
-    newTag: latest
+    newTag: "16.6-alpine"
   - name: redis
-    newTag: latest
+    newTag: "7.4.1-alpine"
   - name: ACCOUNT_ID.dkr.ecr.eu-west-3.amazonaws.com/diffusion-queue-service
     newName: diffusion-queue-service
-    newTag: latest
+    newTag: "dev"
   - name: kong
-    newTag: latest
+    newTag: "3.6.1"
   - name: hashicorp/vault
-    newTag: latest
+    newTag: "1.15.6"
   - name: prom/prometheus
-    newTag: latest
+    newTag: "v2.51.0"
   - name: grafana/grafana
-    newTag: latest
+    newTag: "10.4.18"
