@@ -11,5 +11,5 @@ spec:
     spec:
       containers:
         - name: queue-service
-          image: diffusion-queue-service:latest
+          image: diffusion-queue-service:dev
           imagePullPolicy: IfNotPresent

@@ -25,6 +25,8 @@ spec:
           resources:
             limits:
               memory: "256Mi" # Reduced by 50%
+            requests:
+              memory: "128Mi"
 ---
 apiVersion: apps/v1
 kind: Deployment
