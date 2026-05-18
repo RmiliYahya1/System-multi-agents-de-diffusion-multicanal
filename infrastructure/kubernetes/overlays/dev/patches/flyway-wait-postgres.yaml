@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flyway-migration
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16.6-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h dev-postgres -p 5432 -U diffusion_admin -d diffusion_db; do
+                echo "Waiting for dev-postgres..."
+                sleep 3
+              done
+              echo "dev-postgres is ready."
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: flyway
+          env:
+            - name: FLYWAY_URL
+              value: jdbc:postgresql://dev-postgres:5432/diffusion_db

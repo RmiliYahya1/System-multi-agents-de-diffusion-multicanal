@@ -87,6 +87,8 @@ spec:
           volumeMounts:
             - name: kong-config-rendered
               mountPath: /usr/local/kong/declarative
+            - name: kong-pids
+              mountPath: /usr/local/kong/pids
             - name: tmp
               mountPath: /tmp
             - name: kong-logs
@@ -121,6 +123,8 @@ spec:
           configMap:
             name: kong-declarative-config
         - name: kong-config-rendered
+          emptyDir: {}
+        - name: kong-pids
           emptyDir: {}
         - name: tmp
           emptyDir: {}

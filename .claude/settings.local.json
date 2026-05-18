@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\rmili\\\\PROJET_PFE_EMSI\\\\infrastructure\\\\kubernetes\" -Recurse -Force)",
+      "Bash(Select-Object -Property FullName)",
+      "Bash(Sort-Object -Property FullName)",
+      "Bash(cd /c/Users/rmili/PROJET_PFE_EMSI/infrastructure/kubernetes && find . -type f | sort)",
+      "Bash(kubectl get *)",
+      "Bash(kubectl logs *)",
+      "Bash(kubectl kustomize *)",
+      "Bash(python -c ' *)",
+      "Bash(kubectl apply *)",
+      "Bash(kubectl delete *)",
+      "Bash(kubectl rollout *)",
+      "Bash(kubectl describe *)"
+    ]
+  }
+}

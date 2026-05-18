@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: observability
 resources:
   - namespace.yaml
+  - pvcs.yaml
   - monitoring.yaml
   - configmap-prometheus.yaml
   - configmap-prometheus-rules.yaml

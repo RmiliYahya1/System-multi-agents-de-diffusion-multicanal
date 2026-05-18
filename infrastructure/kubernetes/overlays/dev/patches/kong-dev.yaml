@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: substitute-secrets
+          image: kong:3.6.1
+        - name: populate-kong-dir
+          image: kong:3.6.1
+          command:
+            - sh
+            - -c
+            - |
+              cp -a /usr/local/kong/. /mnt/kong-writable/
+              chmod -R a+rw /mnt/kong-writable
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: kong-writable
+              mountPath: /mnt/kong-writable
+      containers:
+        - name: kong
+          volumeMounts:
+            - name: kong-writable
+              mountPath: /usr/local/kong
+      volumes:
+        - name: kong-writable
+          emptyDir: {}

@@ -25,6 +25,48 @@ patches:
   - path: patches/reduce-replicas.yaml
   - path: patches/reduce-resources.yaml
   - path: patches/disable-external-secrets.yaml
+  - path: patches/postgres-dev.yaml
+    target:
+      kind: StatefulSet
+      name: postgres
+  - path: patches/redis-dev.yaml
+    target:
+      kind: StatefulSet
+      name: redis
+  - path: patches/flyway-wait-postgres.yaml
+    target:
+      kind: Job
+      name: flyway-migration
+  - path: patches/kong-dev.yaml
+    target:
+      kind: Deployment
+      name: kong
+  - target:
+      kind: Deployment
+      name: vault
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/startupProbe
+        value:
+          tcpSocket:
+            port: 8200
+          failureThreshold: 30
+          periodSeconds: 5
+      - op: replace
+        path: /spec/template/spec/containers/0/livenessProbe
+        value:
+          tcpSocket:
+            port: 8200
+          periodSeconds: 30
+          failureThreshold: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe
+        value:
+          tcpSocket:
+            port: 8200
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
   - target:
       namespace: data
     patch: |-
@@ -110,7 +152,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/externalName
-        value: postgres.dev-data.svc.cluster.local
+        value: dev-postgres.dev-data.svc.cluster.local
   - target:
       kind: Service
       name: redis
@@ -118,7 +160,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/externalName
-        value: redis.dev-data.svc.cluster.local
+        value: dev-redis.dev-data.svc.cluster.local
   - target:
       kind: Service
       name: n8n-main
@@ -126,7 +168,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/externalName
-        value: n8n-main.dev-app.svc.cluster.local
+        value: dev-n8n-main.dev-app.svc.cluster.local
   - target:
       kind: Service
       name: postgres-exporter
@@ -134,7 +176,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/externalName
-        value: postgres.dev-data.svc.cluster.local
+        value: dev-postgres.dev-data.svc.cluster.local
   - target:
       kind: Service
       name: redis-exporter
@@ -142,7 +184,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/externalName
-        value: redis.dev-data.svc.cluster.local
+        value: dev-redis.dev-data.svc.cluster.local
   - target:
       kind: Service
       name: n8n-main
@@ -150,7 +192,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/externalName
-        value: n8n-main.dev-app.svc.cluster.local
+        value: dev-n8n-main.dev-app.svc.cluster.local
   - target:
       kind: Service
       name: queue-service
@@ -158,7 +200,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/externalName
-        value: queue-service.dev-app.svc.cluster.local
+        value: dev-queue-service.dev-app.svc.cluster.local
 
 
 configMapGenerator:
@@ -170,12 +212,16 @@ configMapGenerator:
       - N8N_LOG_LEVEL=debug
       - EXECUTIONS_DATA_MAX_AGE=24
       - N8N_CONCURRENCY_PRODUCTION_LIMIT=5
+      - DB_POSTGRESDB_HOST=dev-postgres
+      - QUEUE_BULL_REDIS_HOST=dev-redis
   - name: queue-service-config
     behavior: merge
     namespace: app
     literals:
       - LOG_LEVEL=debug
       - NODE_ENV=development
+      - REDIS_HOST=dev-redis
+      - N8N_WEBHOOK_BASE_URL=http://dev-n8n-main:5678
 
 generatorOptions:
   disableNameSuffixHash: true

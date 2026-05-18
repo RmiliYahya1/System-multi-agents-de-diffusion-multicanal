@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: security
 resources:
   - namespace.yaml
+  - pvcs.yaml
   - external-secret-vault.yaml
   - configmap-vault.yaml
   - vault.yaml

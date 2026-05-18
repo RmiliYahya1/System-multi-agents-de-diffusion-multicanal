@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: init-postgres-permissions
+          image: postgres:16.6-alpine
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 70:70 /var/lib/postgresql/data
+              chmod 700 /var/lib/postgresql/data
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      containers:
+        - name: postgres
+          args:
+            - postgres
+            - -c
+            - max_connections=200
+            - -c
+            - shared_buffers=128MB
+            - -c
+            - work_mem=8MB
+            - -c
+            - effective_cache_size=256MB
+            - -c
+            - maintenance_work_mem=64MB
+            - -c
+            - wal_level=replica
+            - -c
+            - max_wal_senders=3
+        - name: postgres-exporter
+          $patch: delete

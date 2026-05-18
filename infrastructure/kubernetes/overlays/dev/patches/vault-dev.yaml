@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+spec:
+  template:
+    spec:
+      containers:
+        - name: vault
+          startupProbe:
+            tcpSocket:
+              port: 8200
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8200
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  STATUS=$(wget -qS -O /dev/null http://127.0.0.1:8200/v1/sys/health 2>&1 | awk '/HTTP\//{print $2}' | tail -1)
+                  [ "$STATUS" = "200" ] || [ "$STATUS" = "429" ] || [ "$STATUS" = "501" ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
