@@ -116,362 +116,15 @@
     },
     {
       "parameters": {
-        "jsCode": "// ============================================================\n// FB PAID — Étape 1 : Valider ad_account_id + Préparer Campaign\n// CORRECTION v2 : ad_account_id EXPLICITE obligatoire\n// (suppression du fallback dangereux page_id → ad_account_id)\n// ============================================================\nconst d = $('Initialiser Connecteur').first().json;\nconst payload = d.payload;\nconst ads = payload.ads;\nconst pp = payload.platform_params;\n\n// ──── Exiger ad_account_id explicite ────\nconst account_id = pp.ad_account_id || pp.account_id;\nif (!account_id) {\n  return [{ json: {\n    ...d, _step_ok: false,\n    _error_code: 'MISSING_AD_ACCOUNT_ID',\n    _error_message: 'ad_account_id absent dans platform_params. Requis pour PAID.',\n    _orphans: {}\n  } }];\n}\n\nconst campaignBody = {\n  name: `${d.job.campaign_id || 'Campaign'} — FACEBOOK — ${d.job_id}`,\n  objective: ads?.campaign_params?.objective || 'OUTCOME_TRAFFIC',\n  buying_type: ads?.campaign_params?.buying_type || 'AUCTION',\n  status: 'PAUSED',\n  special_ad_categories: ads?.campaign_params?.special_ad_categories || []\n};\n\nreturn [{ json: {\n  ...d,\n  _account_id: account_id,\n  _step_ok: true,\n  _step: 'CAMPAIGN',\n  _endpoint: `https://graph.facebook.com/v21.0/act_${account_id}/campaigns`,\n  _body: campaignBody,\n  _orphans: {}\n} }];"
-      },
-      "id": "9a15b2a4-285f-4035-aca0-5d9f36bfb332",
-      "name": "PAID 1 — Validate + Prép Campaign",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        6368,
-        2272
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json._step_ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "3e0f7a41-a84f-4c39-bdc2-6e926b7f3715",
-      "name": "Check Init PAID OK",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        6640,
-        2272
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $json._endpoint }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.access_token }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json._body) }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "id": "7afc97ca-7235-42bb-9b08-5b002c6180ff",
-      "name": "HTTP — Create Campaign",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        6896,
-        2224
-      ],
-      "retryOnFail": true,
-      "maxTries": 2,
-      "waitBetweenTries": 5000,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "// ============================================================\n// Vérifier réponse Campaign → Préparer Ad Set\n// ============================================================\nconst resp = $input.first().json;\nconst prev = $('PAID 1 — Validate + Prép Campaign').first().json;\n\nif (!resp.id) {\n  const fbErr = resp.error || {};\n  return [{ json: {\n    ...prev, _step_ok: false,\n    _error_code: 'CAMPAIGN_CREATION_FAILED',\n    _error_message: (fbErr.message || JSON.stringify(fbErr)).substring(0, 500),\n    _orphans: {}\n  } }];\n}\n\nconst meta_campaign_id = String(resp.id);\nconst ads = prev.payload.ads || {};\nconst budget = prev.job.budget_amount ? prev.job.budget_amount * 100 : null;\n\nif (!budget || budget <= 0) {\n  return [{ json: {\n    ...prev, _step_ok: false,\n    _meta_campaign_id: meta_campaign_id,\n    _error_code: 'INVALID_BUDGET',\n    _error_message: 'budget_amount invalide ou absent',\n    _orphans: { meta_campaign_id }\n  } }];\n}\n\nconst adsetBody = {\n  name: `AdSet — ${prev.job.campaign_id || 'AdSet'} — ${prev.job_id}`,\n  campaign_id: meta_campaign_id,\n  daily_budget: budget,\n  billing_event: 'IMPRESSIONS',\n  bid_strategy: ads.adset_params?.bid_strategy || 'LOWEST_COST_WITHOUT_CAP',\n  targeting: ads.adset_params?.targeting || { geo_locations: { countries: ['MA'] } },\n  publisher_platforms: ads.adset_params?.placements || ['facebook'],\n  facebook_positions: ads.adset_params?.positions || ['feed'],\n  status: 'PAUSED'\n};\n\nif (prev.job.scheduled_at) adsetBody.start_time = prev.job.scheduled_at;\n\nreturn [{ json: {\n  ...prev,\n  _meta_campaign_id: meta_campaign_id,\n  _orphans: { meta_campaign_id },\n  _step_ok: true,\n  _step: 'ADSET',\n  _endpoint: `https://graph.facebook.com/v21.0/act_${prev._account_id}/adsets`,\n  _body: adsetBody\n} }];"
-      },
-      "id": "c7418cd9-69cb-443d-a5d0-30918017c676",
-      "name": "PAID 2 — Check Campaign + Prép AdSet",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        7152,
-        2224
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json._step_ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "975cf50e-91c6-42d6-9df0-9e282e8cc5f4",
-      "name": "Check Campaign OK",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        7408,
-        2224
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $json._endpoint }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.access_token }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json._body) }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "id": "35e1ea79-7a8b-4e09-b9ac-193bb9a08fa4",
-      "name": "HTTP — Create Ad Set",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        7680,
-        2160
-      ],
-      "retryOnFail": true,
-      "maxTries": 2,
-      "waitBetweenTries": 5000,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "// ============================================================\n// Vérifier réponse Ad Set → Préparer Ad (Creative)\n// ============================================================\nconst resp = $input.first().json;\nconst prev = $('PAID 2 — Check Campaign + Prép AdSet').first().json;\n\nif (!resp.id) {\n  const fbErr = resp.error || {};\n  return [{ json: {\n    ...prev, _step_ok: false,\n    _error_code: 'ADSET_CREATION_FAILED',\n    _error_message: (fbErr.message || JSON.stringify(fbErr)).substring(0, 500)\n  } }];\n}\n\nconst meta_adset_id = String(resp.id);\nconst content = prev.payload.content;\nconst pp = prev.payload.platform_params;\n\nconst creative = {\n  object_story_spec: {\n    page_id: pp.page_id,\n    link_data: {\n      message: content.text || '',\n      link: content.link?.url || '',\n      name: content.headline || '',\n      description: content.description || '',\n      call_to_action: {\n        type: pp.cta_type || 'LEARN_MORE',\n        value: { link: content.link?.url || '' }\n      }\n    }\n  }\n};\nif (content.media && content.media[0]) {\n  creative.object_story_spec.link_data.image_url = content.media[0].url;\n}\n\nconst adBody = {\n  name: `Ad — ${prev.job.campaign_id || 'Ad'} — ${prev.job_id}`,\n  adset_id: meta_adset_id,\n  status: 'ACTIVE',\n  creative\n};\n\nreturn [{ json: {\n  ...prev,\n  _meta_adset_id: meta_adset_id,\n  _orphans: { meta_campaign_id: prev._meta_campaign_id, meta_adset_id },\n  _step_ok: true,\n  _step: 'AD',\n  _endpoint: `https://graph.facebook.com/v21.0/act_${prev._account_id}/ads`,\n  _body: adBody\n} }];"
-      },
-      "id": "ca3acbd4-5970-43bd-95c8-a644e77b0816",
-      "name": "PAID 3 — Check AdSet + Prép Ad",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        7936,
-        2160
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json._step_ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "84764340-6160-4c87-8723-610f89197b7d",
-      "name": "Check AdSet OK",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        8192,
-        2160
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $json._endpoint }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.access_token }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json._body) }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "id": "ae40d69b-2b06-4f67-92b6-bbece3dc73fa",
-      "name": "HTTP — Create Ad",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        8448,
-        2096
-      ],
-      "retryOnFail": true,
-      "maxTries": 2,
-      "waitBetweenTries": 5000,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "// ============================================================\n// Vérifier réponse Ad → Préparer Activation Campaign\n// ============================================================\nconst resp = $input.first().json;\nconst prev = $('PAID 3 — Check AdSet + Prép Ad').first().json;\n\nif (!resp.id) {\n  const fbErr = resp.error || {};\n  return [{ json: {\n    ...prev, _step_ok: false,\n    _error_code: 'AD_CREATION_FAILED',\n    _error_message: (fbErr.message || JSON.stringify(fbErr)).substring(0, 500)\n  } }];\n}\n\nconst meta_ad_id = String(resp.id);\n\nreturn [{ json: {\n  ...prev,\n  _meta_ad_id: meta_ad_id,\n  _orphans: {\n    meta_campaign_id: prev._meta_campaign_id,\n    meta_adset_id: prev._meta_adset_id,\n    meta_ad_id\n  },\n  _step_ok: true,\n  _step: 'ACTIVATE',\n  _endpoint: `https://graph.facebook.com/v21.0/${prev._meta_campaign_id}`,\n  _body: { status: 'ACTIVE' }\n} }];"
-      },
-      "id": "68874afa-166d-40f0-80ce-f761bfb86dd2",
-      "name": "PAID 4 — Check Ad + Prép Activation",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        8720,
-        2096
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json._step_ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "7e1de831-9aac-4931-b934-29950f432eb8",
-      "name": "Check Ad OK",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        8976,
-        2096
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $json._endpoint }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.access_token }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json._body) }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "id": "cbd66320-acdf-458f-a5cf-2737c6b94d99",
-      "name": "HTTP — Activate Campaign",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        9232,
-        2032
-      ],
-      "retryOnFail": true,
-      "maxTries": 2,
-      "waitBetweenTries": 3000,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "// ============================================================\n// Vérifier réponse Activation\n// Succès = réponse { success: true } ou pas d'erreur\n// ============================================================\nconst resp = $input.first().json;\nconst prev = $('PAID 4 — Check Ad + Prép Activation').first().json;\n\n// L'activation retourne { success: true } ou une erreur\nconst isError = resp.error && !resp.success;\nif (isError) {\n  const fbErr = resp.error || {};\n  return [{ json: {\n    ...prev, _step_ok: false,\n    _error_code: 'ACTIVATION_FAILED',\n    _error_message: (fbErr.message || JSON.stringify(fbErr)).substring(0, 500)\n    // Note spec: objets laissés en PAUSED, activation manuelle possible\n  } }];\n}\n\nreturn [{ json: { ...prev, _step_ok: true } }];"
-      },
-      "id": "83aa89b2-e92a-4e6c-ab5f-d53b55c82c74",
-      "name": "PAID 5 — Check Activation",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        9488,
-        2032
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json._step_ok }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              }
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "0d9693da-01c5-4a4d-9987-a8a12f56d345",
-      "name": "Check Activation OK",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        9760,
-        2032
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// ============================================================\n// Pipeline PAID complet — Construire platform_post_id composite\n// ============================================================\nconst prev = $('PAID 4 — Check Ad + Prép Activation').first().json;\nconst platformPostId = [\n  `meta_campaign:${prev._meta_campaign_id}`,\n  `meta_adset:${prev._meta_adset_id}`,\n  `meta_ad:${prev._meta_ad_id}`\n].join('|');\n\nreturn [{ json: {\n  _success: true,\n  _platform_post_id: platformPostId,\n  _status: 'PUBLISHED',\n  _error_code: null,\n  _error_message: null,\n  _orphans: {},\n  job_id: prev.job_id,\n  correlation_id: prev.correlation_id\n} }];"
+        "jsCode": "// Pipeline PAID simplifié — Ad uniquement\nconst prev = $('Traiter réponse PAID').first().json;\n\nreturn [{ json: {\n  _success: prev._success,\n  _platform_post_id: prev._platform_post_id || null,\n  _status: prev._status,\n  _error_code: prev._error_code,\n  _error_message: prev._error_message,\n  _orphans: {},\n  job_id: prev.job_id,\n  correlation_id: prev.correlation_id\n} }];"
       },
       "id": "ef7a033f-37e7-49d3-8384-b0a810da39f2",
       "name": "Résultat PAID succès",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        10016,
-        1984
+        7408,
+        2176
       ]
     },
     {
@@ -548,6 +201,95 @@
       ],
       "id": "78cc608b-40b2-4a99-b680-12eaca3528c6",
       "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// FB PAID — Validate + Préparer Ad\n// Le système reçoit adset_id + creative_id déjà créés manuellement\nconst d = $('Initialiser Connecteur').first().json;\nconst payload = d.payload;\nconst ads = payload.ads;\nconst pp = payload.platform_params;\n\n// Validation\nconst account_id = pp.ad_account_id || pp.account_id;\nif (!account_id) {\n  return [{ json: {\n    ...d, _step_ok: false,\n    _error_code: 'MISSING_AD_ACCOUNT_ID',\n    _error_message: 'ad_account_id absent dans platform_params. Requis pour PAID.'\n  }}];\n}\nif (!ads?.adset_id) {\n  return [{ json: {\n    ...d, _step_ok: false,\n    _error_code: 'MISSING_ADSET_ID',\n    _error_message: 'ads.adset_id absent. Créer l\\'ad set manuellement avant publication.'\n  }}];\n}\nif (!ads?.creative_id) {\n  return [{ json: {\n    ...d, _step_ok: false,\n    _error_code: 'MISSING_CREATIVE_ID',\n    _error_message: 'ads.creative_id absent. Créer le créatif manuellement avant publication.'\n  }}];\n}\n\nconst adBody = {\n  name: `Ad — ${d.job.campaign_id || 'Ad'} — ${d.job_id}`,\n  adset_id: String(ads.adset_id),\n  creative: { creative_id: String(ads.creative_id) },\n  status: ads.status || 'PAUSED'\n};\n\nreturn [{ json: {\n  ...d,\n  _account_id: account_id,\n  _step_ok: true,\n  _endpoint: `https://graph.facebook.com/v21.0/act_${account_id}/ads`,\n  _body: adBody\n}}];"
+      },
+      "id": "a1b2c3d4-1111-4444-aaaa-000000000001",
+      "name": "PAID — Validate + Prép Ad",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6368,
+        2272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._step_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-2222-4444-aaaa-000000000002",
+      "name": "Check PAID OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6640,
+        2272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._endpoint }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._body) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a1b2c3d4-3333-4444-aaaa-000000000003",
+      "name": "HTTP — Create Ad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6896,
+        2224
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst prev = $('PAID — Validate + Prép Ad').first().json;\n\nif (resp.id) {\n  return [{ json: {\n    _success: true,\n    _platform_post_id: String(resp.id),\n    _status: 'PUBLISHED',\n    _error_code: null,\n    _error_message: null,\n    job_id: prev.job_id,\n    correlation_id: prev.correlation_id\n  }}];\n}\n\nconst fbErr = resp.error || {};\nreturn [{ json: {\n  _success: false,\n  _status: 'FAILED_PUBLICATION',\n  _error_code: fbErr.code ? `META_${fbErr.code}` : 'HTTP_ERROR',\n  _error_message: (fbErr.message || JSON.stringify(fbErr)).substring(0, 500),\n  job_id: prev.job_id,\n  correlation_id: prev.correlation_id\n}}];"
+      },
+      "id": "a1b2c3d4-4444-4444-aaaa-000000000004",
+      "name": "Traiter réponse PAID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7152,
+        2224
+      ]
     }
   ],
   "pinData": {},
@@ -585,7 +327,7 @@
         ],
         [
           {
-            "node": "PAID 1 — Validate + Prép Campaign",
+            "node": "PAID — Validate + Prép Ad",
             "type": "main",
             "index": 0
           }
@@ -614,98 +356,40 @@
         ]
       ]
     },
-    "PAID 1 — Validate + Prép Campaign": {
+    "When clicking ‘Execute workflow’": {
       "main": [
         [
           {
-            "node": "Check Init PAID OK",
+            "node": "HTTP Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Check Init PAID OK": {
+    "HTTP Request": {
       "main": [
         [
           {
-            "node": "HTTP — Create Campaign",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Résultat ÉCHEC PAID",
+            "node": "HTTP Request1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP — Create Campaign": {
+    "PAID — Validate + Prép Ad": {
       "main": [
         [
           {
-            "node": "PAID 2 — Check Campaign + Prép AdSet",
+            "node": "Check PAID OK",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "PAID 2 — Check Campaign + Prép AdSet": {
-      "main": [
-        [
-          {
-            "node": "Check Campaign OK",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Campaign OK": {
-      "main": [
-        [
-          {
-            "node": "HTTP — Create Ad Set",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Résultat ÉCHEC PAID",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP — Create Ad Set": {
-      "main": [
-        [
-          {
-            "node": "PAID 3 — Check AdSet + Prép Ad",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "PAID 3 — Check AdSet + Prép Ad": {
-      "main": [
-        [
-          {
-            "node": "Check AdSet OK",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check AdSet OK": {
+    "Check PAID OK": {
       "main": [
         [
           {
@@ -727,98 +411,18 @@
       "main": [
         [
           {
-            "node": "PAID 4 — Check Ad + Prép Activation",
+            "node": "Traiter réponse PAID",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "PAID 4 — Check Ad + Prép Activation": {
-      "main": [
-        [
-          {
-            "node": "Check Ad OK",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Ad OK": {
-      "main": [
-        [
-          {
-            "node": "HTTP — Activate Campaign",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Résultat ÉCHEC PAID",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP — Activate Campaign": {
-      "main": [
-        [
-          {
-            "node": "PAID 5 — Check Activation",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "PAID 5 — Check Activation": {
-      "main": [
-        [
-          {
-            "node": "Check Activation OK",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Activation OK": {
+    "Traiter réponse PAID": {
       "main": [
         [
           {
             "node": "Résultat PAID succès",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Résultat ÉCHEC PAID",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "When clicking ‘Execute workflow’": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP Request": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request1",
             "type": "main",
             "index": 0
           }
