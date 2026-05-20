@@ -1,67 +1,67 @@
 {
-  "name": "AdaptationAgent v1 — UC-02 Adapter le contenu",
+  "name": "AdaptationAgent v2 — UC-02 Adapter le contenu",
   "nodes": [
     {
       "parameters": {},
-      "id": "c97db76c-7dea-4c80-8936-c67c635a19e9",
+      "id": "ca617a54-c233-4a69-9d44-192e498ed2fa",
       "name": "Trigger Sub-Workflow",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
       "position": [
-        -9072,
-        -816
+        -5056,
+        304
       ]
     },
     {
       "parameters": {
         "jsCode": "// ============================================================\n// NOEUD 2 — Recevoir le job_id + Initialiser\n// ============================================================\n\nconst input = $input.first().json;\n\nconst job_id = input.job_id || input.payload?.job_id;\nconst correlation_id = input.correlation_id || '';\nconst message_id = input.message_id || null;\n\nif (!job_id) {\n  throw new Error('AdaptationAgent — Champ obligatoire manquant: job_id');\n}\n\nreturn [{\n  json: {\n    tenant_id: input.tenant_id || 1,\n    job_id,\n    correlation_id,\n    incoming_message_id: message_id,\n    started_at: new Date().toISOString()\n  }\n}];"
       },
-      "id": "81592df4-87a9-42b6-93b3-4b2ff3bcfeac",
+      "id": "e74656ee-839a-490f-a891-ef9a21701a76",
       "name": "Recevoir job_id",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -8832,
-        -816
+        -4816,
+        304
       ]
     },
     {
       "parameters": {
         "jsCode": "const data = $input.first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    agent: 'ADAPTATION_AGENT',\n    event_type: 'ADAPTATION_STARTED',\n    message: `Adaptation démarrée pour ${data.job_id}`,\n    job_id: data.job_id,\n    correlation_id: data.correlation_id\n  }\n}];"
       },
-      "id": "8e8a7394-90c9-4a1a-8233-6cfc3706572d",
+      "id": "bfed38de-a0fe-4a8d-a2db-37ac9600a5ac",
       "name": "Préparer Log STARTED",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -8560,
-        -816
+        -4544,
+        304
       ]
     },
     {
       "parameters": {
         "jsCode": "const initData = $('Recevoir job_id').first().json;\nreturn [{ json: { action: 'GET_JOB', tenant_id: $('Recevoir job_id').first().json.tenant_id, job_id: initData.job_id } }];"
       },
-      "id": "2fc64f67-e60d-4ba1-8ff3-ef124338f62b",
+      "id": "1db4f43b-b097-4273-8154-5342cce4240c",
       "name": "Préparer GET_JOB",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -8048,
-        -816
+        -4032,
+        304
       ]
     },
     {
       "parameters": {
         "jsCode": "// ============================================================\n// Extraire le DiffusionJob + préparer UPDATE → ADAPTING\n// ============================================================\n\nconst jobResult = $input.first().json;\nconst initData = $('Recevoir job_id').first().json;\n\nif (!jobResult.success || !jobResult.job) {\n  throw new Error(`AdaptationAgent — Job ${initData.job_id} introuvable`);\n}\n\nconst job = jobResult.job;\n\nlet payload = job.payload;\nif (typeof payload === 'string') {\n  try { payload = JSON.parse(payload); } catch(e) {\n    throw new Error(`AdaptationAgent — Payload JSON invalide pour ${job.job_id}`);\n  }\n}\n\nreturn [{\n  json: {\n    ...initData,\n    job,\n    payload,\n    channel_name: job.channel_name,\n    diffusion_type: job.diffusion_type,\n    funnel_stage: job.funnel_stage,\n    action: 'UPDATE_JOB', tenant_id: $('Recevoir job_id').first().json.tenant_id,\n    job_id: job.job_id,\n    fields: { status: 'ADAPTING' }\n  }\n}];"
       },
-      "id": "42506a4f-f94c-4c50-bbf1-ee7e7707e604",
+      "id": "5c7a0bfb-ae00-43c5-a358-d478bc7cefd3",
       "name": "Extraire Job + Prép ADAPTING",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -7520,
-        -816
+        -3504,
+        304
       ]
     },
     {
@@ -75,26 +75,26 @@
         },
         "options": {}
       },
-      "id": "04648fb5-27b3-4b81-83b4-af0fd247bf18",
+      "id": "e17a0ca6-a01c-432d-9b47-7025ba1af732",
       "name": "Call 'JobService'1 — ADAPTING",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -7264,
-        -816
+        -3248,
+        304
       ]
     },
     {
       "parameters": {
         "jsCode": "// ============================================================\n// Validation pré-LLM (UC-02 §5.1 + §5.2)\n// ============================================================\n\nconst prev = $('Extraire Job + Prép ADAPTING').first().json;\nconst payload = prev.payload;\nconst ch = prev.channel_name;\nconst dt = prev.diffusion_type;\n\nfunction reject(code, msg) {\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    ...prev,\n    _pre_llm_valid: false,\n    _result_status: 'REJECTED_PAYLOAD',\n    _error_code: code,\n    _error_message: msg\n  }}];\n}\n\nif (!payload || !payload.content || typeof payload.content !== 'object') {\n  return reject('REJECTED_PAYLOAD_STRUCTURE', 'payload.content absent ou invalide');\n}\n\nconst content = payload.content;\n\nif (typeof content.text !== 'string') {\n  return reject('REJECTED_PAYLOAD_STRUCTURE', 'content.text absent ou non-string');\n}\n\nif (ch === 'INSTAGRAM') {\n  if (!content.media || !Array.isArray(content.media) || content.media.length === 0) {\n    return reject('MISSING_MEDIA_REQUIRED', 'Média obligatoire pour Instagram');\n  }\n  if (content.media.filter(m => m && m.url).length === 0) {\n    return reject('INVALID_MEDIA', 'Aucun média valide pour Instagram');\n  }\n}\n\nif (ch === 'FACEBOOK' && dt === 'PAID') {\n  if (!content.text || content.text.trim() === '') return reject('MISSING_TEXT_REQUIRED', 'Texte obligatoire pour Facebook PAID');\n  if (!content.media || content.media.length === 0) return reject('MISSING_MEDIA_REQUIRED', 'Média obligatoire pour Facebook PAID');\n}\n\nif (ch === 'LINKEDIN' && (!content.text || content.text.trim() === '')) {\n  return reject('MISSING_TEXT_REQUIRED', 'Texte obligatoire pour LinkedIn');\n}\n\nif (!payload.platform_params || typeof payload.platform_params !== 'object') {\n  return reject('REJECTED_PAYLOAD_STRUCTURE', 'platform_params absent');\n}\n\nif (dt === 'PAID' && (!payload.ads || typeof payload.ads !== 'object')) {\n  return reject('REJECTED_PAYLOAD_STRUCTURE', 'Bloc ads absent pour diffusion PAID');\n}\n\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id,  ...prev, _pre_llm_valid: true } }];"
       },
-      "id": "b9a13b07-a37e-481f-8a55-203d05fedbbc",
+      "id": "6054e312-4c92-4272-907d-fdc7c25fe7a2",
       "name": "Validation pré-LLM",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -7008,
-        -816
+        -2992,
+        304
       ]
     },
     {
@@ -121,52 +121,52 @@
         },
         "options": {}
       },
-      "id": "2c54debd-52ec-4573-8d50-fde12b2f1c9a",
+      "id": "e89f9981-2050-49d3-9739-9ac2b8457b29",
       "name": "Route pré-LLM",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -6752,
-        -816
+        -2736,
+        304
       ]
     },
     {
       "parameters": {
         "jsCode": "const prev = $('Validation pré-LLM').first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n  action: 'GET_CONFIG_BY_CHANNEL',\n  channel_name: prev.channel_name,\n  diffusion_type: prev.diffusion_type\n}}];"
       },
-      "id": "ea846ea9-bcff-4424-b157-cb34d2c5d18c",
+      "id": "faf7c650-fc18-43b3-a6f9-f85cfb6438b3",
       "name": "Préparer GET_CONFIG",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -6480,
-        -1104
+        -2464,
+        16
       ]
     },
     {
       "parameters": {
         "jsCode": "// ============================================================\n// Construire le prompt LLM (UC-02 §7)\n// ============================================================\n\nconst configResult = $input.first().json;\nconst prev = $('Validation pré-LLM').first().json;\nconst job = prev.job;\nconst payload = prev.payload;\nconst content = payload.content;\n\nconst config = configResult.configs?.[0] || configResult.config || {};\nconst text_max = config.text_max_chars || 5000;\nconst headline_max = config.headline_max_chars || null;\nconst desc_max = config.description_max_chars || null;\nconst hashtags_rec = config.hashtags_recommended || 0;\nconst tone = config.tone_default || 'professionnel';\n\nconst FUNNEL_MAP = {\n  'TOFU': { ton: 'informatif et accrocheur', objectif: 'attirer l\\'attention', cta: 'Découvrez, Saviez-vous que' },\n  'MOFU': { ton: 'évaluatif et engageant', objectif: 'renforcer l\\'intérêt', cta: 'Comparez, Témoignage client' },\n  'BOFU': { ton: 'persuasif et urgent', objectif: 'convertir et pousser à l\\'achat', cta: 'Achetez maintenant, Offre limitée' }\n};\nconst funnel = FUNNEL_MAP[prev.funnel_stage] || FUNNEL_MAP['TOFU'];\n\nlet constraints = `- Texte principal : ${text_max} caractères maximum`;\nif (headline_max) constraints += `\\n- Headline : ${headline_max} caractères maximum`;\nif (desc_max) constraints += `\\n- Description : ${desc_max} caractères maximum`;\nconstraints += hashtags_rec > 0\n  ? `\\n- Hashtags : exactement ${hashtags_rec} hashtags pertinents`\n  : `\\n- Hashtags : aucun (déconseillé pour ce format)`;\n\nlet channelRules = '';\nif (prev.channel_name === 'INSTAGRAM') channelRules = '- Pas de lien cliquable. Texte visuel et accrocheur.';\nelse if (prev.channel_name === 'FACEBOOK' && prev.diffusion_type === 'PAID') channelRules = '- PAS de hashtags. Headline et description obligatoires. CTA fort.';\nelse if (prev.channel_name === 'LINKEDIN') channelRules = '- Ton professionnel. Emojis limités.';\n\nconst currentContent = JSON.stringify({\n  text: content.text, headline: content.headline || null,\n  hashtags: content.hashtags || null, description: content.description || null\n}, null, 2);\n\nconst systemPrompt = `Tu es un expert en marketing digital spécialisé dans l'adaptation de contenu pour les réseaux sociaux.\nTu adaptes le contenu existant sans créer de contenu original.\nTu retournes UNIQUEMENT un objet JSON valide, sans markdown, sans backticks, sans commentaires.`;\n\nconst userPrompt = `## Contexte\n- Canal : ${prev.channel_name} | Type : ${prev.diffusion_type} | Funnel : ${prev.funnel_stage}\n- Ton : ${funnel.ton} (${tone}) | Objectif : ${funnel.objectif}\n\n## Contraintes techniques\n${constraints}\n${channelRules ? '\\n## Règles canal\\n' + channelRules : ''}\n\n## Contenu à adapter\n${currentContent}\n\n## Format de sortie (JSON strict)\n{ \"text\": \"...\", \"headline\": \"...\" ou null, \"hashtags\": [\"#tag\"] ou null, \"description\": \"...\" ou null }\n\nRègles : respecte les limites de caractères. Si headline non requis → null. Si hashtags=0 → null.`;\n\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    ...prev,\n    _config: config,\n    _system_prompt: systemPrompt,\n    _user_prompt: userPrompt,\n    _text_max: text_max,\n    _headline_max: headline_max,\n    _desc_max: desc_max,\n    _hashtags_rec: hashtags_rec\n  }\n}];"
       },
-      "id": "4d3726ad-d820-4ba0-a6dd-fe8aa26729eb",
+      "id": "d3337d9d-8e35-4cd2-b6df-f3ae4ca44a90",
       "name": "Construire Prompt LLM",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -5952,
-        -1104
+        -1936,
+        16
       ]
     },
     {
       "parameters": {
         "jsCode": "const data = $input.first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    agent: 'ADAPTATION_AGENT',\n    event_type: 'PROMPT_BUILT',\n    message: `Prompt construit, canal ${data.channel_name}, funnel ${data.funnel_stage}`,\n    job_id: data.job_id,\n    correlation_id: data.correlation_id\n  }\n}];"
       },
-      "id": "5bd0b362-1eda-4e40-a3a6-c99a9a6e2b96",
+      "id": "38c7ebe2-e649-488f-88f4-f2ed02fd916c",
       "name": "Préparer Log PROMPT",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -5696,
-        -1104
+        -1680,
+        16
       ]
     },
     {
@@ -180,52 +180,39 @@
         },
         "options": {}
       },
-      "id": "d4cd38f7-7a03-4c43-a95e-498fb5b8961b",
+      "id": "8db93089-7bdd-46b5-b5d5-7af5abaf3a6f",
       "name": "Call 'LogService'1 — PROMPT",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -5392,
-        -1104
+        -1376,
+        16
       ]
     },
     {
       "parameters": {
         "jsCode": "// Passer le prompt au nœud AI Agent\nconst data = $('Construire Prompt LLM').first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id,  ...data } }];"
       },
-      "id": "887c57ec-d0e7-442b-9700-d5de97e47054",
+      "id": "9ce39101-4518-44b5-b62f-884afc8f8fb8",
       "name": "Préparer entrée AI Agent",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -5104,
-        -1104
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// ============================================================\n// NOEUD : Adaptation LLM (Avec Fallback Multi-Provider)\n// ============================================================\n\nconst data = $input.first().json;\nconst system_prompt = data._system_prompt;\nconst user_prompt = data._user_prompt;\n\n// Ajout d'un fallback multi-provider LLM\nconst providers = [\n  { name: 'gemini', priority: 1 },\n  { name: 'openai', priority: 2 },\n  { name: 'mistral', priority: 3 }\n];\n\n// Note: En mode production, les appels réels utiliseront axios ou request\n// avec les clés API récupérées depuis Vault ou les variables d'environnement.\n// Ici, on simule l'appel séquentiel (fallback)\nlet success = false;\nlet llmResponse = \"\";\nlet usedProvider = null;\n\nfor (let provider of providers) {\n    try {\n        // --- LOGIQUE D'APPEL API ---\n        // Exemple: const res = await axios.post(provider.endpoint, ...);\n        \n        // Simulation pour le POC / Workflow n8n sans credentials injectées:\n        if (provider.name === 'gemini') {\n            // throw new Error(\"API Limit Reached\"); // Décommenter pour tester le fallback\n            llmResponse = '{\"text\": \"Texte adapté par Gemini\", \"headline\": \"Super Headline Gemini\", \"description\": \"Desc Gemini\"}';\n        } \n        else if (provider.name === 'openai') {\n            llmResponse = '{\"text\": \"Texte adapté par OpenAI\", \"headline\": \"Super Headline OpenAI\", \"description\": \"Desc OpenAI\"}';\n        }\n        else if (provider.name === 'mistral') {\n            llmResponse = '{\"text\": \"Texte adapté par Mistral\", \"headline\": \"Super Headline Mistral\", \"description\": \"Desc Mistral\"}';\n        }\n        \n        success = true;\n        usedProvider = provider.name;\n        break; // Sortie de boucle si succès !\n    } catch (err) {\n        console.log(`Echec provider ${provider.name}: ${err.message}. Essai du suivant...`);\n        // On continue la boucle vers le prochain provider\n    }\n}\n\nif (!success) {\n    throw new Error(\"Tous les fournisseurs LLM (Gemini, OpenAI, Mistral) ont échoué.\");\n}\n\nreturn [{\n    json: {\n        ...data,\n        output: llmResponse,\n        _used_llm_provider: usedProvider\n    }\n}];\n"
-      },
-      "id": "2e0e8abe-619b-406a-b0b9-cb6a1148f3a1",
-      "name": "AI Agent — Adaptation LLM",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -4864,
-        -1104
+        -1088,
+        16
       ]
     },
     {
       "parameters": {
         "jsCode": "// ============================================================\n\n// Validation post-LLM (UC-02 §5.3)\n\n// ============================================================\n\n\n\nconst aiResult = $input.first().json;\n\nconst promptData = $('Construire Prompt LLM').first().json;\n\nconst prev = promptData;\n\nconst startTime = Date.now();\n\n\n\n// --- 1. Extraire la réponse de l'AI Agent ---\n\nlet llmText = aiResult.output || aiResult.text || aiResult.response || '';\n\n\n\nif (!llmText || llmText.trim() === '') {\n\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n\n    ...prev,\n\n    _post_llm_valid: false,\n\n    _result_status: 'FAILED_LLM',\n\n    _error_code: 'LLM_EMPTY_RESPONSE',\n\n    _error_message: 'Le LLM a retourné une réponse vide'\n\n  }}];\n\n}\n\n\n\n// --- 2. Parser le JSON ---\n\nlet adapted;\n\ntry {\n\n  let cleaned = llmText.trim();\n\n  if (cleaned.startsWith('```json')) cleaned = cleaned.slice(7);\n\n  if (cleaned.startsWith('```')) cleaned = cleaned.slice(3);\n\n  if (cleaned.endsWith('```')) cleaned = cleaned.slice(0, -3);\n\n  adapted = JSON.parse(cleaned.trim());\n\n} catch(e) {\n\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n\n    ...prev,\n\n    _post_llm_valid: false,\n\n    _result_status: 'FAILED_ADAPTATION',\n\n    _error_code: 'LLM_INVALID_JSON',\n\n    _error_message: `Sortie LLM non-JSON: ${llmText.substring(0, 200)}`\n\n  }}];\n\n}\n\n\n\n// --- 3. Vérifier la structure ---\n\nif (typeof adapted.text !== 'string' || adapted.text.trim() === '') {\n\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n\n    ...prev,\n\n    _post_llm_valid: false,\n\n    _result_status: 'FAILED_ADAPTATION',\n\n    _error_code: 'LLM_MISSING_TEXT',\n\n    _error_message: 'Champ text absent ou vide'\n\n  }}];\n\n}\n\n\n\n// --- 4. Contraintes de longueur ---\n\nif (adapted.text.length > prev._text_max) {\n\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n\n    ...prev,\n\n    _post_llm_valid: false,\n\n    _result_status: 'FAILED_ADAPTATION',\n\n    _error_code: 'TEXT_TOO_LONG',\n\n    _error_message: `text: ${adapted.text.length} car. > max ${prev._text_max}`\n\n  }}];\n\n}\n\n\n\nif (prev._headline_max && adapted.headline && adapted.headline.length > prev._headline_max) {\n\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n\n    ...prev,\n\n    _post_llm_valid: false,\n\n    _result_status: 'FAILED_ADAPTATION',\n\n    _error_code: 'HEADLINE_TOO_LONG',\n\n    _error_message: `headline: ${adapted.headline.length} car. > max ${prev._headline_max}`\n\n  }}];\n\n}\n\n\n\nif (prev._desc_max && adapted.description && adapted.description.length > prev._desc_max) {\n\n  return [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n\n    ...prev,\n\n    _post_llm_valid: false,\n\n    _result_status: 'FAILED_ADAPTATION',\n\n    _error_code: 'DESCRIPTION_TOO_LONG',\n\n    _error_message: `description: ${adapted.description.length} car. > max ${prev._desc_max}`\n\n  }}];\n\n}\n\n\n\n// --- 5. Hashtags ---\n\nif (adapted.hashtags && Array.isArray(adapted.hashtags) && prev._hashtags_rec === 0) {\n\n  adapted.hashtags = null;\n\n}\n\n\n\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n\n  ...prev,\n\n  _post_llm_valid: true,\n\n  _adapted_content: adapted,\n\n  _processing_time_ms: Date.now() - startTime,\n\n  _llm_raw: llmText.substring(0, 500)\n\n}}];"
       },
-      "id": "d5b8ae31-344f-4b80-8ec9-65b55380d6bc",
+      "id": "cfb5cb57-b7e0-4774-bbdc-eeef3e08f864",
       "name": "Validation post-LLM",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -4464,
-        -1104
+        -448,
+        16
       ]
     },
     {
@@ -252,26 +239,26 @@
         },
         "options": {}
       },
-      "id": "bc91940c-0784-424a-97ad-d4d1f258c5f0",
+      "id": "cccc257e-5b90-444f-982f-cd2e7dacf485",
       "name": "Route post-LLM",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -4272,
-        -1104
+        -256,
+        16
       ]
     },
     {
       "parameters": {
         "jsCode": "// ============================================================\n// Assembler payload adapté (UC-02 §6 étape 8)\n// content adapté (LLM) + media/link/platform_params/ads inchangés\n// ============================================================\n\nconst data = $input.first().json;\nconst originalPayload = data.payload;\nconst adaptedContent = data._adapted_content;\nconst originalContent = originalPayload.content;\n\nconst newContent = {\n  text: adaptedContent.text,\n  headline: adaptedContent.headline || null,\n  media: originalContent.media || [],\n  link: originalContent.link || null,\n  hashtags: adaptedContent.hashtags || null,\n  description: adaptedContent.description || null\n};\n\nif (originalContent.link && adaptedContent.display_text) {\n  newContent.link = { ...originalContent.link, display_text: adaptedContent.display_text };\n}\n\nconst adaptedPayload = {\n  content: newContent,\n  platform_params: originalPayload.platform_params,\n  ...(originalPayload.ads ? { ads: originalPayload.ads } : {})\n};\n\nreturn [{ json: {\n  ...data,\n  _adapted_payload: adaptedPayload,\n  action: 'UPDATE_JOB', tenant_id: $('Recevoir job_id').first().json.tenant_id,\n  job_id: data.job_id,\n  fields: {\n    status: 'ADAPTED',\n    payload: JSON.stringify(adaptedPayload)\n  }\n}}];"
       },
-      "id": "57611a6b-4a1b-47bd-ad34-ed474d4c6eaf",
+      "id": "96566a2c-640e-46f9-b132-4c1a65376b47",
       "name": "Assembler payload adapté",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -4016,
-        -1120
+        0,
+        0
       ]
     },
     {
@@ -285,26 +272,26 @@
         },
         "options": {}
       },
-      "id": "95df371f-3d29-4e81-b9f4-cfc41e708f22",
+      "id": "2268060c-2d16-41bb-b4c5-e04d71c9329b",
       "name": "Call 'JobService'2 — ADAPTED",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -3792,
-        -1120
+        224,
+        0
       ]
     },
     {
       "parameters": {
         "jsCode": "const data = $('Assembler payload adapté').first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    agent: 'ADAPTATION_AGENT',\n    event_type: 'ADAPTATION_COMPLETED',\n    message: `Payload adapté et persisté pour ${data.job_id}, statut=ADAPTED`,\n    job_id: data.job_id,\n    correlation_id: data.correlation_id\n  }\n}];"
       },
-      "id": "5081e3d6-90d0-4d60-9890-8a53861db8e3",
+      "id": "e1cf7ed5-a9ca-4572-b180-1801864d0ce5",
       "name": "Préparer Log COMPLETED",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3552,
-        -1120
+        464,
+        0
       ]
     },
     {
@@ -318,39 +305,39 @@
         },
         "options": {}
       },
-      "id": "a891b4e8-2f3f-4f71-8a96-45adfc755857",
+      "id": "7e51fcc2-c167-4180-87c2-448bd27238d0",
       "name": "Call 'LogService'2 — COMPLETED",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -3296,
-        -1120
+        720,
+        0
       ]
     },
     {
       "parameters": {
         "jsCode": "const data = $('Assembler payload adapté').first().json;\nreturn [{ json: {\n  status: 'SUCCESS',\n  source: 'ADAPTATION_AGENT',\n  target: 'ORCHESTRATOR',\n  correlation_id: data.correlation_id,\n  in_reply_to: data.incoming_message_id,\n  payload: {\n    tenant_id: data.tenant_id,\n    job_id: data.job_id,\n    channel_name: data.channel_name,\n    result_status: 'ADAPTED',\n    processing_time_ms: data._processing_time_ms || 0\n  }\n}}];"
       },
-      "id": "3ad5c257-eadd-4437-847c-d31a3eea431d",
+      "id": "8846abe2-ddf1-4de1-903b-71edd1232e0d",
       "name": "Réponse SUCCÈS",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3056,
-        -1120
+        960,
+        0
       ]
     },
     {
       "parameters": {
         "jsCode": "// Convergence ÉCHEC : REJECTED_PAYLOAD / FAILED_LLM / FAILED_ADAPTATION\nconst data = $input.first().json;\nreturn [{ json: {\n  ...data,\n  action: 'UPDATE_JOB', tenant_id: $('Recevoir job_id').first().json.tenant_id,\n  job_id: data.job_id,\n  fields: {\n    status: data._result_status || 'FAILED_ADAPTATION',\n    last_error: JSON.stringify({ error_code: data._error_code, error_message: data._error_message })\n  }\n}}];"
       },
-      "id": "71ffa692-dd4e-4734-9916-10eac008ec8f",
+      "id": "242bbe40-f975-4920-b73a-fa6a3dce46aa",
       "name": "Préparer UPDATE échec",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -4016,
-        -800
+        0,
+        320
       ]
     },
     {
@@ -364,26 +351,26 @@
         },
         "options": {}
       },
-      "id": "cdfd51ed-8c15-418d-b2c1-6568ce686d59",
+      "id": "b3083433-952f-45d1-a224-950524c274bc",
       "name": "Call 'JobService'3 — Échec",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -3760,
-        -800
+        256,
+        320
       ]
     },
     {
       "parameters": {
         "jsCode": "const data = $('Préparer UPDATE échec').first().json;\nreturn [{ json: { tenant_id: $('Recevoir job_id').first().json.tenant_id, client_id: $('Recevoir job_id').first().json.client_id, \n    agent: 'ADAPTATION_AGENT',\n    event_type: data._result_status || 'ADAPTATION_FAILURE',\n    message: `${data._result_status}: ${data._error_message} pour ${data.job_id}`,\n    job_id: data.job_id,\n    correlation_id: data.correlation_id\n  }\n}];"
       },
-      "id": "9bf5f13c-00d8-493d-8476-ded86b1bee46",
+      "id": "4060c637-3985-410a-810d-cca4e7693d91",
       "name": "Préparer Log Échec",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3536,
-        -800
+        480,
+        320
       ]
     },
     {
@@ -397,26 +384,26 @@
         },
         "options": {}
       },
-      "id": "6c68d302-e7db-49c2-801f-cfc57260238f",
+      "id": "2ed1d517-7ee1-4c21-81c3-cdd739e04847",
       "name": "Call 'LogService'3 — Échec",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -3296,
-        -800
+        720,
+        320
       ]
     },
     {
       "parameters": {
         "jsCode": "const data = $('Préparer UPDATE échec').first().json;\nreturn [{ json: {\n  status: 'SUCCESS',\n  source: 'ADAPTATION_AGENT',\n  target: 'ORCHESTRATOR',\n  correlation_id: data.correlation_id,\n  in_reply_to: data.incoming_message_id,\n  payload: {\n    tenant_id: data.tenant_id,\n    job_id: data.job_id,\n    result_status: data._result_status,\n    error_code: data._error_code,\n    error_message: data._error_message\n  }\n}}];"
       },
-      "id": "ce1c23ae-20bc-473c-b623-a989e83523c1",
+      "id": "c06b6e20-3812-455e-88f6-8dd56c9dd181",
       "name": "Réponse ÉCHEC",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3024,
-        -800
+        992,
+        320
       ]
     },
     {
@@ -430,13 +417,13 @@
         },
         "options": {}
       },
-      "id": "10b89595-356c-41cc-a07c-0ae5421e76fc",
+      "id": "29b71e57-5958-446c-aab6-28caddc3fc89",
       "name": "Call 'LogService v3 — insert_log_event (PostgreSQL)'",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -8304,
-        -816
+        -4288,
+        304
       ]
     },
     {
@@ -450,13 +437,13 @@
         },
         "options": {}
       },
-      "id": "ef556500-c096-45a3-af41-1aeef3482e25",
+      "id": "dc7e3771-11a0-4447-9d42-ab3066d814c5",
       "name": "Call 'JobService v3 — CRUD diffusion_jobs (PostgreSQL)'",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -7792,
-        -816
+        -3776,
+        304
       ]
     },
     {
@@ -470,14 +457,54 @@
         },
         "options": {}
       },
-      "id": "be129b66-1b4d-479c-b4a4-dbe02efb1f7c",
+      "id": "2ca169b8-41ad-41f3-8b0f-7ddf68ba0ee3",
       "name": "Call 'ChannelConfigService v3 — PostgreSQL + Cache'",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [
-        -6240,
-        -1104
+        -2224,
+        16
       ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json._user_prompt }}",
+        "options": {
+          "systemMessage": "={{ $json._system_prompt }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -832,
+        16
+      ],
+      "id": "a9ee99d2-a55d-4aa6-b28d-19e68ae17670",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "mistral-small-latest",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 1000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatMistralCloud",
+      "typeVersion": 1,
+      "position": [
+        -976,
+        224
+      ],
+      "id": "5ec1e6c9-ad85-428d-a040-33c5bdebd642",
+      "name": "Mistral Cloud Chat Model",
+      "credentials": {
+        "mistralCloudApi": {
+          "id": "TO_CONFIGURE",
+          "name": "Mistral Cloud API"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -625,18 +652,7 @@
       "main": [
         [
           {
-            "node": "AI Agent — Adaptation LLM",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "AI Agent — Adaptation LLM": {
-      "main": [
-        [
-          {
-            "node": "Validation post-LLM",
+            "node": "AI Agent",
             "type": "main",
             "index": 0
           }
@@ -760,13 +776,6 @@
         ]
       ]
     },
-    "Google Gemini Chat Model": {},
-    "Message a model": {
-      "main": [
-        []
-      ]
-    },
-    "Mistral Cloud Chat Model": {},
     "Call 'LogService v3 — insert_log_event (PostgreSQL)'": {
       "main": [
         [
@@ -799,49 +808,69 @@
           }
         ]
       ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Validation post-LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral Cloud Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate",
-    "availableInMCP": false
+    "binaryMode": "separate"
   },
-  "versionId": "50c6dc34-de83-4fb3-a5c3-d2d850be7ef6",
+  "versionId": "e5c7e381-2be4-49d5-9236-8f24b5c86a76",
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "b5eadc60aa2160b2d4f6fd4e1236df5f22cad2d61ce7970f5addab93a65af9e8"
+    "instanceId": "54f05a87f5b881780cdc40e3fddfebf72e3ba7e5f65405ab121c7f22d9849ab4"
   },
-  "id": "5nN5TsmHLJiwY57B",
+  "id": "0rrA8VgJQjWdTpgF",
   "tags": [
     {
-      "updatedAt": "2026-03-23T15:07:20.139Z",
-      "createdAt": "2026-03-23T15:07:20.139Z",
-      "id": "0YyrCPMMgA2N9Vrp",
+      "updatedAt": "2026-05-19T10:14:46.331Z",
+      "createdAt": "2026-05-19T10:14:46.331Z",
+      "id": "C9FHY9NaJ3v8yhfH",
       "name": "yahya-rmili"
     },
     {
-      "updatedAt": "2026-03-11T09:18:14.317Z",
-      "createdAt": "2026-03-11T09:18:14.317Z",
-      "id": "3wi3NixvOnOUO10I",
+      "updatedAt": "2026-05-19T11:20:32.792Z",
+      "createdAt": "2026-05-19T11:20:32.792Z",
+      "id": "lftaGvCPgfoH1VFd",
       "name": "UC-02"
     },
     {
-      "updatedAt": "2026-03-25T08:23:44.594Z",
-      "createdAt": "2026-03-25T08:23:44.594Z",
-      "id": "NJyK77I8oZ1P6mCe",
+      "updatedAt": "2026-05-19T10:14:46.369Z",
+      "createdAt": "2026-05-19T10:14:46.369Z",
+      "id": "FYaqvqXtJn13kqXm",
       "name": "system-diffusion"
     },
     {
-      "updatedAt": "2026-03-11T09:18:14.319Z",
-      "createdAt": "2026-03-11T09:18:14.319Z",
-      "id": "NNWcabjOYfENaITm",
+      "updatedAt": "2026-05-19T11:14:29.064Z",
+      "createdAt": "2026-05-19T11:14:29.064Z",
+      "id": "1NRhcG0lJwO1w07X",
       "name": "AdaptationAgent"
     },
     {
-      "updatedAt": "2026-03-03T22:31:23.745Z",
-      "createdAt": "2026-03-03T22:31:23.745Z",
-      "id": "ReBzMcnTpRRcDrJi",
+      "updatedAt": "2026-05-19T11:14:29.093Z",
+      "createdAt": "2026-05-19T11:14:29.093Z",
+      "id": "gA3IZUSTPt89NE7D",
       "name": "Agents"
     }
   ]
