@@ -82,7 +82,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://barb-undefensible-dalila.ngrok-free.dev/enqueue-batch/ingestion",
+        "url": "http://dev-queue-service.dev-app.svc.cluster.local:3002/enqueue-batch/ingestion",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ jobs: $json.jobs }) }}",
@@ -98,7 +98,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// ============================================================\n// v4 — Construire la réponse 202 Accepted\n// ============================================================\n// CHANGEMENT vs v3 :\n//   v3 : attendait l'ingestion complète pour répondre\n//   v4 : répond immédiatement avec correlation_id + info enqueue\n// ============================================================\n\nconst enqueueResult = $input.first().json;\nconst prep = $('Préparer enqueue batch').first().json;\n\nreturn [{\n  json: {\n    status: 'ACCEPTED',\n    correlation_id: prep.correlation_id,\n    message: `${prep.batch_size} diffusion(s) enqueued pour traitement asynchrone`,\n    payload: {\n      batch_size: prep.batch_size,\n      source_agent: prep.source_agent,\n      queue: 'ingestion',\n      job_ids: enqueueResult.job_ids || [],\n      enqueued_at: enqueueResult.enqueued_at || new Date().toISOString(),\n    },\n    _tracking: {\n      correlation_id: prep.correlation_id,\n      status_endpoint: `/api/v1/diffusions/status/${prep.correlation_id}`,\n      dashboard: 'http://localhost:3002/queues',\n    },\n  }\n}];\n"
+        "jsCode": "// ============================================================\n// v4 — Construire la réponse 202 Accepted\n// ============================================================\n// CHANGEMENT vs v3 :\n//   v3 : attendait l'ingestion complète pour répondre\n//   v4 : répond immédiatement avec correlation_id + info enqueue\n// ============================================================\n\nconst enqueueResult = $input.first().json;\nconst prep = $('Préparer enqueue batch').first().json;\n\nreturn [{\n  json: {\n    status: 'ACCEPTED',\n    correlation_id: prep.correlation_id,\n    message: `${prep.batch_size} diffusion(s) enqueued pour traitement asynchrone`,\n    payload: {\n      batch_size: prep.batch_size,\n      source_agent: prep.source_agent,\n      queue: 'ingestion',\n      job_ids: enqueueResult.job_ids || [],\n      enqueued_at: enqueueResult.enqueued_at || new Date().toISOString(),\n    },\n    _tracking: {\n      correlation_id: prep.correlation_id,\n      status_endpoint: `/api/v1/diffusions/status/${prep.correlation_id}`,\n      dashboard: 'http://dev-queue-service.dev-app.svc.cluster.local:3002/queues',\n    },\n  }\n}];\n"
       },
       "id": "build-response-001",
       "name": "Construire réponse 202",

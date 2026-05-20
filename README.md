@@ -8,3 +8,7 @@ Pour exÃ©cuter le projet en dÃ©veloppement local, utilisez le fichier Docker Com
 ## DÃ©ploiement production
 
 Voir `infrastructure/kubernetes/`
+
+## Configuration des Secrets
+
+**IMPORTANT** : La variable d'environnement \VAULT_ROOT_TOKEN\ (utilisée par CredentialsService) doit être configurée dans les secrets Kubernetes (par exemple dans \diffusion-secrets\ ou \ault-secrets\). Voir \local-secrets.yaml\ pour l'environnement de dev.

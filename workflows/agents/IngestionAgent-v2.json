@@ -640,14 +640,14 @@
       "main": [
         [
           {
-            "node": "Construire ACK",
+            "node": "Validation & Normalisation",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Validation & Normalisation",
+            "node": "Construire ACK",
             "type": "main",
             "index": 0
           }

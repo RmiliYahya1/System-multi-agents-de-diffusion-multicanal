@@ -69,6 +69,11 @@ spec:
                 secretKeyRef:
                   name: diffusion-secrets
                   key: N8N_ENCRYPTION_KEY
+            - name: VAULT_ROOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: diffusion-secrets
+                  key: VAULT_TOKEN
           ports:
             - containerPort: 5678
               name: http

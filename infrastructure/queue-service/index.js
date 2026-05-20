@@ -32,7 +32,7 @@ const REDIS_HOST = process.env.REDIS_HOST || 'redis';
 const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
 
-const N8N_WEBHOOK_BASE = process.env.N8N_WEBHOOK_BASE_URL || 'https://n8n.iaweb.dev';
+const N8N_WEBHOOK_BASE = process.env.N8N_WEBHOOK_BASE_URL || 'http://dev-n8n-main.dev-app.svc.cluster.local:5678';
 const PORT = parseInt(process.env.QUEUE_SERVICE_PORT || '3002');
 
 const redisConnection = {

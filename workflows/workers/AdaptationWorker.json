@@ -100,7 +100,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://barb-undefensible-dalila.ngrok-free.dev/enqueue/{{ $json.queue_target }}",
+        "url": "=http://dev-queue-service.dev-app.svc.cluster.local:3002/enqueue/{{ $json.queue_target }}",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ job_id: $json.job_id, correlation_id: $json.correlation_id, channel_name: $json.channel_name, action: 'PUBLISH_CONTENT', _priority: 3, _attempts: 3 }) }}",

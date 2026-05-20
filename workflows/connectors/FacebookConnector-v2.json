@@ -141,68 +141,6 @@
       ]
     },
     {
-      "parameters": {},
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [
-        5264,
-        1296
-      ],
-      "id": "8e656cbd-e583-4781-a740-9f0fdb372da6",
-      "name": "When clicking ‘Execute workflow’"
-    },
-    {
-      "parameters": {
-        "url": "https://graph.facebook.com/v19.0/me/accounts",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "access_token",
-              "value": "EAANQ3B8sZCZBUBQZC3FYrFRf6rxRZA2ZBroVgZCEEh6tcf9uVt0j2MHDS0KgNHFkGSIQQ3wmbjp2rDzsKtOvYzDsSdBTwLz0wdDZBpZAMrhaO6ZBwzKfPz9eYU2ImClAdm5g8ZBftZC3TPUKbDeNIvtJqaFqJATBsvfZB1nfFsUKVFIIMlsSa9xVcKW5InwWHRgyZCCgt0wZDZD"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        5472,
-        1296
-      ],
-      "id": "b21c2621-049a-4b50-9293-395c02ffb010",
-      "name": "HTTP Request"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://graph.facebook.com/v19.0/579564268565837/feed",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "message",
-              "value": "Test post from n8n"
-            },
-            {
-              "name": "access_token",
-              "value": "EAANQ3B8sZCZBUBQZC5x3rOBZBNfFdZAL9r1vN3UcWgJ2NN2uAgnuBErKX4ohxZBHEIirqIWZCZBDewLGjR00prQ4qVCgAFk0DtuBGTjOFcAcWNoMzML4DDNNMhzbVZAFDsvZBhyUBU5UPa8DfnRM6hQoa95hZBrzJryaMER4hbJFNDdUS8ylNq1EtPXRk24IkZCCemVQPD3M44gL"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        5680,
-        1296
-      ],
-      "id": "78cc608b-40b2-4a99-b680-12eaca3528c6",
-      "name": "HTTP Request1"
-    },
-    {
       "parameters": {
         "jsCode": "// FB PAID — Validate + Préparer Ad\n// Le système reçoit adset_id + creative_id déjà créés manuellement\nconst d = $('Initialiser Connecteur').first().json;\nconst payload = d.payload;\nconst ads = payload.ads;\nconst pp = payload.platform_params;\n\n// Validation\nconst account_id = pp.ad_account_id || pp.account_id;\nif (!account_id) {\n  return [{ json: {\n    ...d, _step_ok: false,\n    _error_code: 'MISSING_AD_ACCOUNT_ID',\n    _error_message: 'ad_account_id absent dans platform_params. Requis pour PAID.'\n  }}];\n}\nif (!ads?.adset_id) {\n  return [{ json: {\n    ...d, _step_ok: false,\n    _error_code: 'MISSING_ADSET_ID',\n    _error_message: 'ads.adset_id absent. Créer l\\'ad set manuellement avant publication.'\n  }}];\n}\nif (!ads?.creative_id) {\n  return [{ json: {\n    ...d, _step_ok: false,\n    _error_code: 'MISSING_CREATIVE_ID',\n    _error_message: 'ads.creative_id absent. Créer le créatif manuellement avant publication.'\n  }}];\n}\n\nconst adBody = {\n  name: `Ad — ${d.job.campaign_id || 'Ad'} — ${d.job_id}`,\n  adset_id: String(ads.adset_id),\n  creative: { creative_id: String(ads.creative_id) },\n  status: ads.status || 'PAUSED'\n};\n\nreturn [{ json: {\n  ...d,\n  _account_id: account_id,\n  _step_ok: true,\n  _endpoint: `https://graph.facebook.com/v21.0/act_${account_id}/ads`,\n  _body: adBody\n}}];"
       },
@@ -350,28 +288,6 @@
         [
           {
             "node": "Traiter réponse ORGANIC",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "When clicking ‘Execute workflow’": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP Request": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request1",
             "type": "main",
             "index": 0
           }

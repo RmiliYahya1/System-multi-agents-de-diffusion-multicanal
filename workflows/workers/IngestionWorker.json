@@ -99,7 +99,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// ============================================================\n// Enqueue chaque job accepté dans la queue 'adaptation'\n// ============================================================\n\nconst data = $input.first().json;\nconst accepted = data.accepted || [];\n\nreturn accepted.map(job => ({\n  json: {\n    url: 'https://barb-undefensible-dalila.ngrok-free.dev/enqueue/adaptation',\n    body: {\n      tenant_id: job.tenant_id,\n      job_id: job.job_id,\n      correlation_id: data.correlation_id,\n      action: 'ADAPT_CONTENT',\n      _priority: 5,\n      _attempts: 3,\n    }\n  }\n}));\n"
+        "jsCode": "// ============================================================\n// Enqueue chaque job accepté dans la queue 'adaptation'\n// ============================================================\n\nconst data = $input.first().json;\nconst accepted = data.accepted || [];\n\nreturn accepted.map(job => ({\n  json: {\n    url: 'http://dev-queue-service.dev-app.svc.cluster.local:3002/enqueue/adaptation',\n    body: {\n      tenant_id: job.tenant_id,\n      job_id: job.job_id,\n      correlation_id: data.correlation_id,\n      action: 'ADAPT_CONTENT',\n      _priority: 5,\n      _attempts: 3,\n    }\n  }\n}));\n"
       },
       "id": "prep-enqueue-adapt-001",
       "name": "Préparer enqueue adaptation",
