@@ -1,0 +1,9 @@
+# Placeholder — sera rempli à l'étape 5 (Storage layer)
+# Cible : patcher les PVC vers la StorageClass OVH MKS (csi-cinder-*)
+# Tailles attendues pour staging :
+#   - postgres-pvc : 10Gi
+#   - redis-pvc    : 2Gi
+#   - prometheus-pvc : 5Gi
+#   - vault-pvc, grafana-pvc, pgadmin-pvc : tailles base
+#
+# Ce fichier n'est PAS listé dans kustomization.yaml tant qu'il est vide.

@@ -16,8 +16,6 @@ patches:
     target:
       kind: Ingress
       name: diffusion-ingress
-  - path: patches/storage-class-gp3.yaml
-  - path: patches/external-secrets-env.yaml
   - target:
       namespace: data
     patch: |-
