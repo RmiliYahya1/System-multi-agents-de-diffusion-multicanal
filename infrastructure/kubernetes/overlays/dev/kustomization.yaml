@@ -226,8 +226,10 @@ configMapGenerator:
 generatorOptions:
   disableNameSuffixHash: true
 
-commonLabels:
-  environment: dev
+labels:
+  - includeSelectors: true
+    pairs:
+      environment: dev
 
 images:
   - name: n8nio/n8n

@@ -11,6 +11,8 @@ resources:
   - configmap-grafana-dashboards.yaml
   - external-services.yaml
   - external-secret-grafana.yaml
-commonLabels:
-  layer: observability
-  app.kubernetes.io/part-of: diffusion-platform
+labels:
+  - includeSelectors: true
+    pairs:
+      layer: observability
+      app.kubernetes.io/part-of: diffusion-platform

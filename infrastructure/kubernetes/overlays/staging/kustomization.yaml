@@ -169,8 +169,10 @@ configMapGenerator:
 generatorOptions:
   disableNameSuffixHash: true
 
-commonLabels:
-  environment: staging
+labels:
+  - includeSelectors: true
+    pairs:
+      environment: staging
 
 images:
   - name: n8nio/n8n

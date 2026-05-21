@@ -7,6 +7,8 @@ resources:
   - external-secret-vault.yaml
   - configmap-vault.yaml
   - vault.yaml
-commonLabels:
-  layer: security
-  app.kubernetes.io/part-of: diffusion-platform
+labels:
+  - includeSelectors: true
+    pairs:
+      layer: security
+      app.kubernetes.io/part-of: diffusion-platform

@@ -10,6 +10,8 @@ resources:
   - external-secret-app.yaml
   - configmap-n8n.yaml
   - configmap-queue-service.yaml
-commonLabels:
-  layer: app
-  app.kubernetes.io/part-of: diffusion-platform
+labels:
+  - includeSelectors: true
+    pairs:
+      layer: app
+      app.kubernetes.io/part-of: diffusion-platform
