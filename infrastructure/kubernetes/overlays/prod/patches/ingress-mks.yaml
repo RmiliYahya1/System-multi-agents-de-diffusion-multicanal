@@ -1,0 +1,5 @@
+# Placeholder — sera rempli à l'étape 7 (Ingress MKS + cert-manager)
+# Cible : ajuster les annotations Ingress pour le controller nginx managé
+# par OVH MKS et brancher cert-manager (DNS-01 via OVH DNS).
+#
+# Ce fichier n'est PAS listé dans kustomization.yaml tant qu'il est vide.
