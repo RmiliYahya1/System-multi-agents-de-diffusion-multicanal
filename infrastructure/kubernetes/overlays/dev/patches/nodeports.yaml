@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────
 # NodePorts pour le dev local UNIQUEMENT (Docker Desktop, Minikube)
-# En staging et prod, l'accès se fait via l'Ingress ALB (étape 8)
+# En staging et prod, l'accès se fait via l'Ingress (MKS nginx controller — voir étape 7 du plan de migration)
 # kong-admin n'a intentionnellement PAS de NodePort, même en dev.
 # Pour accéder à l'API admin en dev : kubectl port-forward svc/dev-kong-admin 8001:8001 -n dev-gateway
 # ─────────────────────────────────────────────────────────────────
