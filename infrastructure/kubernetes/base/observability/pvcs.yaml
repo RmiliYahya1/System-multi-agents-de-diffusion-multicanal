@@ -1,4 +1,7 @@
 ---
+# storageClassName is intentionally omitted in base/.
+# Each overlay (dev, staging-mks, prod-mks) declares its own StorageClass
+# via a patch — see overlays/*/patches/storage-class-*.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

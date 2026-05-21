@@ -126,7 +126,7 @@ spec:
               sleep 10
               # Dans Redis.yaml, le PVC redis-data est monté.
               # Le cronjob déclenche BGSAVE — la persistance AOF/RDB s'en charge dans son propre volume.
-              echo "Redis save triggered. Note: Real backups of the appendonly.aof require AWS S3 or a separate script to copy the RDB."
+              echo "Redis save triggered. Note: this only triggers BGSAVE on the local PV. Shipping the RDB to object storage (OVH Object Storage planned) is handled by a separate job — TODO."
             env:
             - name: REDIS_PASSWORD
               valueFrom:
