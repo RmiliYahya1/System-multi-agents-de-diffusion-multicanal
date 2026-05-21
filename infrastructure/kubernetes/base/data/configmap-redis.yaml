@@ -4,5 +4,7 @@ metadata:
   name: redis-config
 data:
   REDIS_MAXMEMORY: "1gb"
-  REDIS_MAXMEMORY_POLICY: allkeys-lru
+  # BullMQ exige noeviction — avec allkeys-lru, Redis peut évincer des clés de jobs silencieusement.
+  # noeviction retourne une erreur OOM sur write, que BullMQ gère correctement (retry/backpressure).
+  REDIS_MAXMEMORY_POLICY: noeviction
   REDIS_APPENDONLY: "yes"
