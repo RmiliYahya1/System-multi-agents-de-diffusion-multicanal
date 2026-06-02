@@ -17,7 +17,7 @@ set -e
 
 # Configuration
 export VAULT_ADDR="http://127.0.0.1:8200"
-export VAULT_TOKEN="V4ult_R00t_T0k3n_2026!"
+# VAULT_TOKEN est injecté automatiquement par Docker depuis le fichier .env
 
 echo "═══════════════════════════════════════════════════"
 echo " Vault Init — Système de Diffusion (Phase 5)"

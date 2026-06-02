@@ -20,5 +20,5 @@ consumers:
 jwt_secrets:
   - consumer: client_demo_01
     key: "emetteur_demo_01"          # Identifiant 'iss' dans le JWT
-    secret: "Cl3_S3cr3t3_B1ind3e_2026_SUPER_SECRET_KEY!" # Clé de signature privée
+    secret: "${KONG_JWT_SECRET}"          # Clé de signature privée
     algorithm: HS256

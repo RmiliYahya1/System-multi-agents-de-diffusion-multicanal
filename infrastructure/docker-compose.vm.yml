@@ -13,7 +13,6 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
@@ -114,7 +113,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      N8N_WEBHOOK_BASE_URL: ${N8N_WEBHOOK_BASE_URL}
+      N8N_WEBHOOK_BASE_URL: http://n8n-main:5678
       QUEUE_SERVICE_PORT: 3002
     networks:
       - diffusion-network
@@ -211,7 +210,8 @@ services:
     networks:
       - diffusion-network
     depends_on:
-      - queue-service
+      n8n-main:
+        condition: service_healthy
 
   # ─── Vault ───
   vault:
