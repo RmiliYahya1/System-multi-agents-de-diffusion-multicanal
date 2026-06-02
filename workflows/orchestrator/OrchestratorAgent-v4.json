@@ -82,7 +82,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://dev-queue-service.dev-app.svc.cluster.local:3002/enqueue-batch/ingestion",
+        "url": "http://queue-service:3002/enqueue-batch/ingestion",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ jobs: $json.jobs }) }}",

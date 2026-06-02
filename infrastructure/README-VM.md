@@ -66,6 +66,14 @@ Après le premier démarrage, il est impératif d'initialiser Vault (si vous uti
 docker exec diffusion-vault sh /vault/scripts/init-vault.sh
 ```
 
+## Import des workflows n8n
+
+1. Ouvrir n8n à `http://<IP_VM>/` après le démarrage
+2. Importer chaque fichier JSON depuis `workflows/` via **Settings → Import Workflow**
+3. Activer chaque workflow importé (toggle "Active")
+
+L'ordre d'import recommandé : **services** (LogService, JobService, ChannelConfigService, CredentialsService) → **agents** (IngestionAgent, AdaptationAgent, PublicationAgent) → **workers** (IngestionWorker, AdaptationWorker, PublicationWorker) → **orchestrateur** (OrchestratorAgent)
+
 ## Arrêt / Reset
 
 - **Arrêter les services** (conserve les données) :
