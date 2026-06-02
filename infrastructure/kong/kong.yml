@@ -1,7 +1,7 @@
 _format_version: "3.0"
 services:
   - name: nginx-proxy
-    url: http://nginx:80
+    url: http://n8n-main:5678
     routes:
       - name: diffusion-webhook
         paths:

@@ -37,6 +37,22 @@ docker compose -f infrastructure/docker-compose.vm.yml up -d
 
 > Tous les autres ports (5432, 6379, 8000, 5678, 9090, 3000, 3002) restent strictement internes au réseau `diffusion-network`.
 
+## Premier démarrage de Vault
+
+```bash
+# 1. Initialiser Vault (une seule fois, à la toute première installation)
+docker exec diffusion-vault vault operator init -key-shares=1 -key-threshold=1
+# → Noter la "Unseal Key" et le "Initial Root Token" dans un endroit sûr
+
+# 2. Unsealer Vault (à faire après chaque redémarrage du conteneur)
+docker exec diffusion-vault vault operator unseal <UNSEAL_KEY>
+
+# 3. Pousser les credentials (une seule fois après init)
+docker exec diffusion-vault sh /vault/scripts/init-vault.sh
+```
+
+*(L'étape 1 et 3 ne se font qu'une seule fois. L'étape 2 est nécessaire à chaque redémarrage du conteneur Vault)*
+
 ## Smoke test
 
 Exécutez ces requêtes (après le démarrage) pour vérifier que chaque composant critique répond correctement :
@@ -58,13 +74,6 @@ curl -s http://localhost:8200/v1/sys/health | grep '"initialized"'
 curl -I http://localhost/
 ```
 
-## Initialisation de Vault
-
-Après le premier démarrage, il est impératif d'initialiser Vault (si vous utilisez le script d'initialisation fourni) :
-
-```bash
-docker exec diffusion-vault sh /vault/scripts/init-vault.sh
-```
 
 ## Import des workflows n8n
 

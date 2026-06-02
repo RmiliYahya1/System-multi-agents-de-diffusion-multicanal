@@ -141,7 +141,7 @@ services:
       - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
       - N8N_HOST=n8n-main
       - N8N_PORT=5678
-      - WEBHOOK_URL=http://n8n-main:5678/
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost/}
       - GENERIC_TIMEZONE=Africa/Casablanca
     volumes:
       - diffusion-vm-n8n-main-data:/home/node/.n8n
@@ -177,6 +177,7 @@ services:
       - QUEUE_BULL_REDIS_PORT=6379
       - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
       - GENERIC_TIMEZONE=Africa/Casablanca
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost/}
     volumes:
       - diffusion-vm-n8n-worker-data:/home/node/.n8n
     networks:
@@ -217,15 +218,15 @@ services:
     image: hashicorp/vault:1.15
     container_name: diffusion-vault
     restart: unless-stopped
+    command: server -config=/vault/config/vault.hcl
     cap_add:
       - IPC_LOCK
-    environment:
-      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN}
-      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
     ports:
       - "8200:8200"
     volumes:
       - ./scripts:/vault/scripts:ro
+      - ./vault-config/vault.hcl:/vault/config/vault.hcl:ro
+      - diffusion-vm-vault-data:/vault/data
     networks:
       - diffusion-network
 
@@ -281,3 +282,5 @@ volumes:
     name: diffusion-vm-prometheus-data
   diffusion-vm-grafana-data:
     name: diffusion-vm-grafana-data
+  diffusion-vm-vault-data:
+    name: diffusion-vm-vault-data
