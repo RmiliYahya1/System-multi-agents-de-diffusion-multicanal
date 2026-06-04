@@ -1,0 +1,2734 @@
+﻿apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-app
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-data
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: external-secrets
+  name: staging-external-secrets
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  name: staging-gateway
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-observability
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: security
+  name: staging-security
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/eks-staging-external-secrets
+  labels:
+    environment: staging
+  name: staging-external-secrets
+  namespace: staging-external-secrets
+---
+apiVersion: v1
+data:
+  DB_POSTGRESDB_DATABASE: diffusion_db
+  DB_POSTGRESDB_HOST: postgres
+  DB_POSTGRESDB_PORT: "5432"
+  DB_POSTGRESDB_USER: diffusion_admin
+  DB_TYPE: postgresdb
+  EXECUTIONS_DATA_MAX_AGE: "72"
+  EXECUTIONS_DATA_PRUNE: "true"
+  EXECUTIONS_MODE: queue
+  GENERIC_TIMEZONE: Africa/Casablanca
+  LOG_LEVEL: info
+  N8N_CONCURRENCY_PRODUCTION_LIMIT: "10"
+  N8N_HOST: 0.0.0.0
+  N8N_LOG_LEVEL: info
+  N8N_PAYLOAD_SIZE_MAX: "64"
+  N8N_PORT: "5678"
+  N8N_RUNNERS_ENABLED: "true"
+  QUEUE_BULL_REDIS_HOST: redis
+  QUEUE_BULL_REDIS_PORT: "6379"
+  QUEUE_HEALTH_CHECK_ACTIVE: "true"
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-n8n-config
+  namespace: staging-app
+---
+apiVersion: v1
+data:
+  LOG_LEVEL: info
+  N8N_WEBHOOK_BASE_URL: http://n8n-main:5678
+  NODE_ENV: staging
+  QUEUE_SERVICE_PORT: "3002"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-queue-service-config
+  namespace: staging-app
+---
+apiVersion: v1
+data:
+  V1__init_schema.sql: |
+    CREATE SCHEMA IF NOT EXISTS diffusion;
+
+    CREATE TABLE IF NOT EXISTS diffusion.credentials (
+        id                  BIGSERIAL     PRIMARY KEY,
+        credential_ref      VARCHAR(50)   UNIQUE NOT NULL,
+        client_id           BIGINT        NOT NULL,
+        platform            VARCHAR(20)   NOT NULL CHECK (platform IN ('facebook', 'instagram', 'linkedin')),
+        access_token        TEXT          NOT NULL,
+        refresh_token       TEXT,
+        client_app_id       VARCHAR(100),
+        client_secret       TEXT,
+        tenant_id           BIGINT        NOT NULL,
+        expires_at          TIMESTAMPTZ,
+        created_at          TIMESTAMPTZ   DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ   DEFAULT NOW(),
+        CONSTRAINT uq_cred_client_platform UNIQUE (tenant_id, client_id, platform)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cred_client ON diffusion.credentials (client_id);
+
+    CREATE TABLE IF NOT EXISTS diffusion.channel_config (
+        id                      SMALLSERIAL   PRIMARY KEY,
+        config_id               VARCHAR(50)   UNIQUE NOT NULL,
+        channel_name            VARCHAR(20)   NOT NULL CHECK (channel_name IN ('FACEBOOK', 'INSTAGRAM', 'LINKEDIN')),
+        diffusion_type          VARCHAR(10)   NOT NULL CHECK (diffusion_type IN ('ORGANIC', 'PAID')),
+        post_type               VARCHAR(20),
+        text_max_chars          INTEGER,
+        headline_max_chars      INTEGER,
+        description_max_chars   INTEGER,
+        hashtags_recommended    SMALLINT      DEFAULT 0,
+        media_required          BOOLEAN       DEFAULT FALSE,
+        native_scheduling       BOOLEAN       DEFAULT FALSE,
+        tone_default            VARCHAR(50),
+        typical_api_calls       SMALLINT      DEFAULT 1,
+        tenant_id               BIGINT        NOT NULL,
+        CONSTRAINT uq_config_channel_type UNIQUE (tenant_id, channel_name, diffusion_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS diffusion.jobs (
+        id                  BIGSERIAL     PRIMARY KEY,
+        job_id              VARCHAR(50)   NOT NULL,
+        request_id          VARCHAR(100)  NOT NULL,
+        batch_id            VARCHAR(50)   NOT NULL,
+        diffusion_id        BIGINT,
+        source_agent        VARCHAR(20)   NOT NULL CHECK (source_agent IN ('AGENT_ADS', 'AGENT_MAILING', 'AGENT_COMMUNITY', 'IA_CRM')),
+        tenant_id           BIGINT        NOT NULL,
+        client_id           BIGINT        NOT NULL,
+        campaign_id         BIGINT,
+        channel_name        VARCHAR(20)   NOT NULL CHECK (channel_name IN ('FACEBOOK', 'INSTAGRAM', 'LINKEDIN')),
+        credential_ref      VARCHAR(50)   NOT NULL,
+        diffusion_type      VARCHAR(10)   NOT NULL CHECK (diffusion_type IN ('ORGANIC', 'PAID')),
+        funnel_stage        VARCHAR(10)   CHECK (funnel_stage IN ('TOFU', 'MOFU', 'BOFU')),
+        scheduled_at        TIMESTAMPTZ,
+        timezone            VARCHAR(50)   DEFAULT 'Africa/Casablanca',
+        budget_amount       NUMERIC(12,2),
+        budget_currency     VARCHAR(5),
+        payload             JSONB         NOT NULL DEFAULT '{}',
+        status              VARCHAR(30)   NOT NULL DEFAULT 'RECEIVED' CHECK (status IN (
+            'RECEIVED','SCHEDULED','REJECTED_SCHEMA','REJECTED_BUSINESS','DUPLICATE_IGNORED',
+            'ADAPTING','ADAPTED','REJECTED_PAYLOAD','FAILED_LLM','FAILED_ADAPTATION',
+            'PUBLISHING','PUBLISHED','FAILED_PRE_PUBLICATION','FAILED_CREDENTIALS',
+            'FAILED_PUBLICATION','PUBLICATION_DEFERRED','ORCHESTRATION_ERROR')),
+        retry_count         SMALLINT      DEFAULT 0,
+        retry_max           SMALLINT      DEFAULT 3,
+        platform_post_id    TEXT,
+        last_error          JSONB,
+        created_at          TIMESTAMPTZ   DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ   DEFAULT NOW(),
+        CONSTRAINT uq_jobs_job_id UNIQUE (tenant_id, job_id),
+        CONSTRAINT uq_jobs_request_channel UNIQUE (tenant_id, request_id, channel_name),
+        CONSTRAINT chk_budget_paid CHECK ((diffusion_type = 'PAID' AND budget_amount IS NOT NULL) OR (diffusion_type = 'ORGANIC'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_jobs_status ON diffusion.jobs (status);
+    CREATE INDEX IF NOT EXISTS idx_jobs_batch_id ON diffusion.jobs (batch_id);
+    CREATE INDEX IF NOT EXISTS idx_jobs_tenant_client_chan ON diffusion.jobs (tenant_id, client_id, channel_name);
+    CREATE INDEX IF NOT EXISTS idx_jobs_created ON diffusion.jobs (created_at);
+
+    CREATE TABLE IF NOT EXISTS diffusion.log_events (
+        id                  BIGSERIAL,
+        log_id              VARCHAR(50)   NOT NULL,
+        job_id              VARCHAR(50),
+        correlation_id      VARCHAR(50),
+        agent               VARCHAR(30)   NOT NULL,
+        event_type          VARCHAR(50)   NOT NULL,
+        message             TEXT,
+        tenant_id           BIGINT        NOT NULL,
+        timestamp           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (id, timestamp)
+    ) PARTITION BY RANGE (timestamp);
+    CREATE INDEX IF NOT EXISTS idx_logs_job_id      ON diffusion.log_events (job_id);
+    CREATE INDEX IF NOT EXISTS idx_logs_correlation ON diffusion.log_events (correlation_id);
+    CREATE INDEX IF NOT EXISTS idx_logs_timestamp   ON diffusion.log_events (timestamp);
+
+    CREATE TABLE IF NOT EXISTS diffusion.log_events_2026_04 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');
+    CREATE TABLE IF NOT EXISTS diffusion.log_events_2026_05 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
+    CREATE TABLE IF NOT EXISTS diffusion.log_events_2026_06 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
+    CREATE TABLE IF NOT EXISTS diffusion.log_events_2026_07 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-07-01') TO ('2026-08-01');
+    CREATE TABLE IF NOT EXISTS diffusion.log_events_2026_08 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
+    CREATE TABLE IF NOT EXISTS diffusion.log_events_2026_09 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+
+    CREATE OR REPLACE FUNCTION diffusion.update_timestamp() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_jobs_updated ON diffusion.jobs;
+    CREATE TRIGGER trg_jobs_updated BEFORE UPDATE ON diffusion.jobs FOR EACH ROW EXECUTE FUNCTION diffusion.update_timestamp();
+
+    DROP TRIGGER IF EXISTS trg_credentials_updated ON diffusion.credentials;
+    CREATE TRIGGER trg_credentials_updated BEFORE UPDATE ON diffusion.credentials FOR EACH ROW EXECUTE FUNCTION diffusion.update_timestamp();
+
+    INSERT INTO diffusion.channel_config (config_id, channel_name, diffusion_type, post_type, text_max_chars, headline_max_chars, description_max_chars, hashtags_recommended, media_required, native_scheduling, tone_default, typical_api_calls, tenant_id) VALUES
+        ('FACEBOOK_ORGANIC',  'FACEBOOK',  'ORGANIC', 'FEED',         63206, NULL, NULL, 3,  FALSE, TRUE,  'conversationnel', 1, 1),
+        ('FACEBOOK_PAID',     'FACEBOOK',  'PAID',    'SINGLE_IMAGE', 63206, 40,   30,   0,  TRUE,  TRUE,  'persuasif',       4, 1),
+        ('INSTAGRAM_ORGANIC', 'INSTAGRAM', 'ORGANIC', 'FEED',         2200,  NULL, NULL, 15, TRUE,  FALSE, 'visuel',          2, 1),
+        ('INSTAGRAM_PAID',    'INSTAGRAM', 'PAID',    'STORY',        2200,  NULL, NULL, 5,  TRUE,  FALSE, 'accrocheur',      4, 1),
+        ('LINKEDIN_ORGANIC',  'LINKEDIN',  'ORGANIC', 'DEFAULT',      3000,  NULL, NULL, 5,  FALSE, FALSE, 'professionnel',   2, 1),
+        ('LINKEDIN_PAID',     'LINKEDIN',  'PAID',    'SINGLE_IMAGE', 600,   70,   200,  0,  TRUE,  TRUE,  'professionnel',   3, 1)
+    ON CONFLICT (config_id) DO NOTHING;
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-flyway-migrations
+  namespace: staging-data
+---
+apiVersion: v1
+data:
+  PGTZ: Africa/Casablanca
+  POSTGRES_DB: diffusion_db
+  POSTGRES_USER: diffusion_admin
+  TZ: Africa/Casablanca
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-postgres-config
+  namespace: staging-data
+---
+apiVersion: v1
+data:
+  001_init_schema.sql: |
+    BEGIN;
+    CREATE SCHEMA IF NOT EXISTS diffusion;
+    SET timezone = 'Africa/Casablanca';
+
+    CREATE TABLE diffusion.credentials (
+        id                  BIGSERIAL     PRIMARY KEY,
+        credential_ref      VARCHAR(50)   UNIQUE NOT NULL,
+        client_id           BIGINT        NOT NULL,
+        platform            VARCHAR(20)   NOT NULL CHECK (platform IN ('facebook', 'instagram', 'linkedin')),
+        access_token        TEXT          NOT NULL,
+        refresh_token       TEXT,
+        client_app_id       VARCHAR(100),
+        client_secret       TEXT,
+        tenant_id           BIGINT        NOT NULL,
+        expires_at          TIMESTAMPTZ,
+        created_at          TIMESTAMPTZ   DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ   DEFAULT NOW(),
+        CONSTRAINT uq_cred_client_platform UNIQUE (tenant_id, client_id, platform)
+    );
+    CREATE INDEX idx_cred_client ON diffusion.credentials (client_id);
+
+    CREATE TABLE diffusion.channel_config (
+        id                      SMALLSERIAL   PRIMARY KEY,
+        config_id               VARCHAR(50)   UNIQUE NOT NULL,
+        channel_name            VARCHAR(20)   NOT NULL CHECK (channel_name IN ('FACEBOOK', 'INSTAGRAM', 'LINKEDIN')),
+        diffusion_type          VARCHAR(10)   NOT NULL CHECK (diffusion_type IN ('ORGANIC', 'PAID')),
+        post_type               VARCHAR(20),
+        text_max_chars          INTEGER,
+        headline_max_chars      INTEGER,
+        description_max_chars   INTEGER,
+        hashtags_recommended    SMALLINT      DEFAULT 0,
+        media_required          BOOLEAN       DEFAULT FALSE,
+        native_scheduling       BOOLEAN       DEFAULT FALSE,
+        tone_default            VARCHAR(50),
+        typical_api_calls       SMALLINT      DEFAULT 1,
+        tenant_id               BIGINT        NOT NULL,
+        CONSTRAINT uq_config_channel_type UNIQUE (tenant_id, channel_name, diffusion_type)
+    );
+
+    CREATE TABLE diffusion.jobs (
+        id                  BIGSERIAL     PRIMARY KEY,
+        job_id              VARCHAR(50)   NOT NULL,
+        request_id          VARCHAR(100)  NOT NULL,
+        batch_id            VARCHAR(50)   NOT NULL,
+        diffusion_id        BIGINT,
+        source_agent        VARCHAR(20)   NOT NULL CHECK (source_agent IN ('AGENT_ADS', 'AGENT_MAILING', 'AGENT_COMMUNITY', 'IA_CRM')),
+        tenant_id           BIGINT        NOT NULL,
+        client_id           BIGINT        NOT NULL,
+        campaign_id         BIGINT,
+        channel_name        VARCHAR(20)   NOT NULL CHECK (channel_name IN ('FACEBOOK', 'INSTAGRAM', 'LINKEDIN')),
+        credential_ref      VARCHAR(50)   NOT NULL,
+        diffusion_type      VARCHAR(10)   NOT NULL CHECK (diffusion_type IN ('ORGANIC', 'PAID')),
+        funnel_stage        VARCHAR(10)   CHECK (funnel_stage IN ('TOFU', 'MOFU', 'BOFU')),
+        scheduled_at        TIMESTAMPTZ,
+        timezone            VARCHAR(50)   DEFAULT 'Africa/Casablanca',
+        budget_amount       NUMERIC(12,2),
+        budget_currency     VARCHAR(5),
+        payload             JSONB         NOT NULL DEFAULT '{}',
+        status              VARCHAR(30)   NOT NULL DEFAULT 'RECEIVED' CHECK (status IN (
+            'RECEIVED','SCHEDULED','REJECTED_SCHEMA','REJECTED_BUSINESS','DUPLICATE_IGNORED',
+            'ADAPTING','ADAPTED','REJECTED_PAYLOAD','FAILED_LLM','FAILED_ADAPTATION',
+            'PUBLISHING','PUBLISHED','FAILED_PRE_PUBLICATION','FAILED_CREDENTIALS',
+            'FAILED_PUBLICATION','PUBLICATION_DEFERRED','ORCHESTRATION_ERROR')),
+        retry_count         SMALLINT      DEFAULT 0,
+        retry_max           SMALLINT      DEFAULT 3,
+        platform_post_id    TEXT,
+        last_error          JSONB,
+        created_at          TIMESTAMPTZ   DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ   DEFAULT NOW(),
+        CONSTRAINT uq_jobs_job_id UNIQUE (tenant_id, job_id),
+        CONSTRAINT uq_jobs_request_channel UNIQUE (tenant_id, request_id, channel_name),
+        CONSTRAINT chk_budget_paid CHECK ((diffusion_type = 'PAID' AND budget_amount IS NOT NULL) OR (diffusion_type = 'ORGANIC')),
+        CONSTRAINT fk_jobs_credential FOREIGN KEY (credential_ref) REFERENCES diffusion.credentials(credential_ref) ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+    CREATE INDEX idx_jobs_status ON diffusion.jobs (status);
+    CREATE INDEX idx_jobs_batch_id ON diffusion.jobs (batch_id);
+    CREATE INDEX idx_jobs_tenant_client_chan ON diffusion.jobs (tenant_id, client_id, channel_name);
+    CREATE INDEX idx_jobs_created ON diffusion.jobs (created_at);
+
+    CREATE TABLE diffusion.log_events (
+        id                  BIGSERIAL,
+        log_id              VARCHAR(50)   NOT NULL,
+        job_id              VARCHAR(50),
+        correlation_id      VARCHAR(50),
+        agent               VARCHAR(30)   NOT NULL,
+        event_type          VARCHAR(50)   NOT NULL,
+        message             TEXT,
+        tenant_id           BIGINT        NOT NULL,
+        timestamp           TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (id, timestamp)
+    ) PARTITION BY RANGE (timestamp);
+    CREATE INDEX idx_logs_job_id      ON diffusion.log_events (job_id);
+    CREATE INDEX idx_logs_correlation ON diffusion.log_events (correlation_id);
+    CREATE INDEX idx_logs_timestamp   ON diffusion.log_events (timestamp);
+
+    CREATE TABLE diffusion.log_events_2026_04 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');
+    CREATE TABLE diffusion.log_events_2026_05 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
+    CREATE TABLE diffusion.log_events_2026_06 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
+    CREATE TABLE diffusion.log_events_2026_07 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-07-01') TO ('2026-08-01');
+    CREATE TABLE diffusion.log_events_2026_08 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
+    CREATE TABLE diffusion.log_events_2026_09 PARTITION OF diffusion.log_events FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+
+    CREATE OR REPLACE FUNCTION diffusion.update_timestamp() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;
+    CREATE TRIGGER trg_jobs_updated BEFORE UPDATE ON diffusion.jobs FOR EACH ROW EXECUTE FUNCTION diffusion.update_timestamp();
+    CREATE TRIGGER trg_credentials_updated BEFORE UPDATE ON diffusion.credentials FOR EACH ROW EXECUTE FUNCTION diffusion.update_timestamp();
+
+    INSERT INTO diffusion.channel_config (config_id, channel_name, diffusion_type, post_type, text_max_chars, headline_max_chars, description_max_chars, hashtags_recommended, media_required, native_scheduling, tone_default, typical_api_calls, tenant_id) VALUES
+        ('FACEBOOK_ORGANIC',  'FACEBOOK',  'ORGANIC', 'FEED',         63206, NULL, NULL, 3,  FALSE, TRUE,  'conversationnel', 1, 1),
+        ('FACEBOOK_PAID',     'FACEBOOK',  'PAID',    'SINGLE_IMAGE', 63206, 40,   30,   0,  TRUE,  TRUE,  'persuasif',       4, 1),
+        ('INSTAGRAM_ORGANIC', 'INSTAGRAM', 'ORGANIC', 'FEED',         2200,  NULL, NULL, 15, TRUE,  FALSE, 'visuel',          2, 1),
+        ('INSTAGRAM_PAID',    'INSTAGRAM', 'PAID',    'STORY',        2200,  NULL, NULL, 5,  TRUE,  FALSE, 'accrocheur',      4, 1),
+        ('LINKEDIN_ORGANIC',  'LINKEDIN',  'ORGANIC', 'DEFAULT',      3000,  NULL, NULL, 5,  FALSE, FALSE, 'professionnel',   2, 1),
+        ('LINKEDIN_PAID',     'LINKEDIN',  'PAID',    'SINGLE_IMAGE', 600,   70,   200,  0,  TRUE,  TRUE,  'professionnel',   3, 1);
+
+    COMMIT;
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-postgres-init-config
+  namespace: staging-data
+---
+apiVersion: v1
+data:
+  REDIS_APPENDONLY: "yes"
+  REDIS_MAXMEMORY: 1gb
+  REDIS_MAXMEMORY_POLICY: noeviction
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-redis-config
+  namespace: staging-data
+---
+apiVersion: v1
+data:
+  kong.yml: |
+    _format_version: "3.0"
+    services:
+      - name: n8n-service
+        url: http://n8n-main:5678
+        routes:
+          - name: diffusion-webhook
+            paths:
+              - /webhook/
+            strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              claims_to_verify:
+                - exp
+    consumers:
+      - username: client_demo_01
+    jwt_secrets:
+      - consumer: client_demo_01
+        key: "emetteur_demo_01"
+        secret: "${KONG_JWT_SECRET}"
+        algorithm: HS256
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  name: staging-kong-declarative-config
+  namespace: staging-gateway
+---
+apiVersion: v1
+data:
+  KONG_ADMIN_ACCESS_LOG: /dev/stdout
+  KONG_ADMIN_ERROR_LOG: /dev/stderr
+  KONG_ADMIN_LISTEN: 0.0.0.0:8001
+  KONG_DATABASE: "off"
+  KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+  KONG_PROXY_ACCESS_LOG: /dev/stdout
+  KONG_PROXY_ERROR_LOG: /dev/stderr
+  KONG_PROXY_LISTEN: 0.0.0.0:8000
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  name: staging-kong-runtime-config
+  namespace: staging-gateway
+---
+apiVersion: v1
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'default'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        options:
+          path: /var/lib/grafana/dashboards
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-grafana-dashboards-config
+  namespace: staging-observability
+---
+apiVersion: v1
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-grafana-datasources
+  namespace: staging-observability
+---
+apiVersion: v1
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: diffusion-staging
+        environment: staging
+
+    rule_files:
+      - /etc/prometheus/rules/*.yaml
+
+    scrape_configs:
+      - job_name: 'queue-service'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['queue-service:3002']
+
+      - job_name: 'n8n'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['n8n-main:5678']
+
+      - job_name: 'redis'
+        static_configs:
+          - targets: ['redis-exporter:9121']
+
+      - job_name: 'postgres'
+        static_configs:
+          - targets: ['postgres-exporter:9187']
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-prometheus-config
+  namespace: staging-observability
+---
+apiVersion: v1
+data:
+  alerts.yaml: |
+    groups: []
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-prometheus-rules
+  namespace: staging-observability
+---
+apiVersion: v1
+data:
+  vault.hcl: |
+    storage "file" {
+      path = "/vault/data"
+    }
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      tls_disable = 1
+    }
+    ui = true
+    default_lease_ttl = "168h"
+    max_lease_ttl     = "720h"
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: security
+  name: staging-vault-config
+  namespace: staging-security
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: n8n-main
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-n8n-main
+  namespace: staging-app
+spec:
+  ports:
+  - appProtocol: http
+    name: http
+    port: 5678
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: n8n-main
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: data
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-postgres
+  namespace: staging-app
+spec:
+  externalName: postgres.staging-data.svc.cluster.local
+  ports:
+  - appProtocol: postgresql
+    name: postgres
+    port: 5432
+    protocol: TCP
+  selector:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  type: ExternalName
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: microservice
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: queue-service
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-queue-service
+  namespace: staging-app
+spec:
+  ports:
+  - appProtocol: http
+    name: http
+    port: 3002
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: queue-service
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: data
+  labels:
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-redis
+  namespace: staging-app
+spec:
+  externalName: redis.staging-data.svc.cluster.local
+  ports:
+  - appProtocol: redis
+    name: redis
+    port: 6379
+    protocol: TCP
+  selector:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  type: ExternalName
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-postgres
+  namespace: staging-data
+spec:
+  clusterIP: None
+  ports:
+  - appProtocol: postgresql
+    name: postgres
+    port: 5432
+    protocol: TCP
+    targetPort: postgres
+  - appProtocol: http
+    name: metrics
+    port: 9187
+    protocol: TCP
+    targetPort: metrics
+  selector:
+    app: postgres
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-redis
+  namespace: staging-data
+spec:
+  clusterIP: None
+  ports:
+  - appProtocol: redis
+    name: redis
+    port: 6379
+    protocol: TCP
+    targetPort: redis
+  - appProtocol: http
+    name: metrics
+    port: 9121
+    protocol: TCP
+    targetPort: metrics
+  selector:
+    app: redis
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: gateway-admin
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kong-admin
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  name: staging-kong-admin
+  namespace: staging-gateway
+spec:
+  ports:
+  - appProtocol: http
+    name: admin
+    port: 8001
+    protocol: TCP
+    targetPort: admin
+  selector:
+    app: kong
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kong-proxy
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  name: staging-kong-proxy
+  namespace: staging-gateway
+spec:
+  ports:
+  - appProtocol: http
+    name: proxy
+    port: 80
+    protocol: TCP
+    targetPort: proxy
+  selector:
+    app: kong
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: app
+  labels:
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: n8n-main
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  name: staging-n8n-main
+  namespace: staging-gateway
+spec:
+  externalName: n8n-main.staging-app.svc.cluster.local
+  ports:
+  - appProtocol: http
+    name: http
+    port: 5678
+    protocol: TCP
+  selector:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  type: ExternalName
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-grafana
+  namespace: staging-observability
+spec:
+  ports:
+  - appProtocol: http
+    name: http
+    port: 3000
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: grafana
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: app
+  labels:
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: n8n-main
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-n8n-main
+  namespace: staging-observability
+spec:
+  externalName: n8n-main.staging-app.svc.cluster.local
+  ports:
+  - appProtocol: http
+    name: http
+    port: 5678
+    protocol: TCP
+  selector:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  type: ExternalName
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: data
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: postgres-exporter
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-postgres-exporter
+  namespace: staging-observability
+spec:
+  externalName: postgres.staging-data.svc.cluster.local
+  ports:
+  - appProtocol: http
+    name: metrics
+    port: 9187
+    protocol: TCP
+  selector:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  type: ExternalName
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-prometheus
+  namespace: staging-observability
+spec:
+  ports:
+  - appProtocol: http
+    name: http
+    port: 9090
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: prometheus
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: app
+  labels:
+    app.kubernetes.io/component: microservice
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: queue-service
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-queue-service
+  namespace: staging-observability
+spec:
+  externalName: queue-service.staging-app.svc.cluster.local
+  ports:
+  - appProtocol: http
+    name: http
+    port: 3002
+    protocol: TCP
+  selector:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  type: ExternalName
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    diffusion.platform/cross-namespace-alias: "true"
+    diffusion.platform/target-namespace: data
+  labels:
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: redis-exporter
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-redis-exporter
+  namespace: staging-observability
+spec:
+  externalName: redis.staging-data.svc.cluster.local
+  ports:
+  - appProtocol: http
+    name: metrics
+    port: 9121
+    protocol: TCP
+  selector:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  type: ExternalName
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: security
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: security
+  name: staging-vault
+  namespace: staging-security
+spec:
+  ports:
+  - appProtocol: http
+    name: http
+    port: 8200
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: vault
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: security
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-backups-pvc
+  namespace: staging-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-pgadmin-pvc
+  namespace: staging-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: gp3
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-postgres-pvc
+  namespace: staging-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: gp3
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-redis-pvc
+  namespace: staging-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: gp3
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-grafana-pvc
+  namespace: staging-observability
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: gp3
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-prometheus-pvc
+  namespace: staging-observability
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: gp3
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: security
+  name: staging-vault-pvc
+  namespace: staging-security
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: gp3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: workflow-engine
+    app.kubernetes.io/instance: n8n-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: n8n-main
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: 2.18.7
+    environment: staging
+    layer: app
+  name: staging-n8n-main
+  namespace: staging-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: n8n-main
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: app
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "5678"
+        prometheus.io/scrape: "true"
+      labels:
+        app: n8n-main
+        app.kubernetes.io/component: workflow-engine
+        app.kubernetes.io/instance: n8n-main
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: n8n-main
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: 2.18.7
+        environment: staging
+        layer: app
+    spec:
+      containers:
+      - env:
+        - name: WEBHOOK_URL
+          value: http://n8n-main:5678/
+        - name: DB_POSTGRESDB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: diffusion-secrets
+        - name: QUEUE_BULL_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: REDIS_PASSWORD
+              name: diffusion-secrets
+        - name: N8N_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              key: N8N_ENCRYPTION_KEY
+              name: diffusion-secrets
+        - name: VAULT_ROOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: VAULT_TOKEN
+              name: diffusion-secrets
+        envFrom:
+        - configMapRef:
+            name: staging-n8n-config
+        image: n8nio/n8n:2.18.7
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        name: n8n-main
+        ports:
+        - containerPort: 5678
+          name: http
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: "2"
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            path: /healthz
+            port: 5678
+          periodSeconds: 10
+        volumeMounts:
+        - mountPath: /home/node/.n8n
+          name: n8n-home
+        - mountPath: /home/node/.cache
+          name: n8n-cache
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      volumes:
+      - emptyDir: {}
+        name: n8n-home
+      - emptyDir: {}
+        name: n8n-cache
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/instance: n8n-worker
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: n8n-worker
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: 2.18.7
+    environment: staging
+    layer: app
+  name: staging-n8n-worker
+  namespace: staging-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: n8n-worker
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: app
+  strategy:
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: n8n-worker
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/instance: n8n-worker
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: n8n-worker
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: 2.18.7
+        environment: staging
+        layer: app
+    spec:
+      containers:
+      - args:
+        - worker
+        env:
+        - name: DB_POSTGRESDB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: diffusion-secrets
+        - name: QUEUE_BULL_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: REDIS_PASSWORD
+              name: diffusion-secrets
+        - name: N8N_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              key: N8N_ENCRYPTION_KEY
+              name: diffusion-secrets
+        - name: VAULT_ROOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: VAULT_TOKEN
+              name: diffusion-secrets
+        envFrom:
+        - configMapRef:
+            name: staging-n8n-config
+        image: n8nio/n8n:2.18.7
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - pgrep -f 'n8n' > /dev/null
+          failureThreshold: 3
+          periodSeconds: 30
+        name: n8n-worker
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - pgrep -f 'n8n' > /dev/null
+          failureThreshold: 3
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 1500m
+            memory: 1.5Gi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - pgrep -f 'n8n' > /dev/null
+          failureThreshold: 30
+          periodSeconds: 10
+        volumeMounts:
+        - mountPath: /home/node/.n8n
+          name: n8n-home
+        - mountPath: /home/node/.cache
+          name: n8n-cache
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 300
+      volumes:
+      - emptyDir: {}
+        name: n8n-home
+      - emptyDir: {}
+        name: n8n-cache
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: microservice
+    app.kubernetes.io/instance: queue-service
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: queue-service
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: 1.0.0
+    environment: staging
+    layer: app
+  name: staging-queue-service
+  namespace: staging-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: queue-service
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: app
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "3002"
+        prometheus.io/scrape: "true"
+      labels:
+        app: queue-service
+        app.kubernetes.io/component: microservice
+        app.kubernetes.io/instance: queue-service
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: queue-service
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: 1.0.0
+        environment: staging
+        layer: app
+    spec:
+      containers:
+      - env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: REDIS_PASSWORD
+              name: diffusion-secrets
+        envFrom:
+        - configMapRef:
+            name: staging-queue-service-config
+        image: ACCOUNT_ID.dkr.ecr.eu-west-3.amazonaws.com/diffusion-queue-service:staging-latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 3002
+          periodSeconds: 30
+        name: queue-service
+        ports:
+        - containerPort: 3002
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /health
+            port: 3002
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      volumes:
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/instance: kong
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kong
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: 3.6.1
+    environment: staging
+    layer: gateway
+  name: staging-kong
+  namespace: staging-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kong
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: gateway
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: kong
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/instance: kong
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: kong
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: 3.6.1
+        environment: staging
+        layer: gateway
+    spec:
+      containers:
+      - envFrom:
+        - configMapRef:
+            name: staging-kong-runtime-config
+        image: kong:3.6.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /status
+            port: 8001
+          periodSeconds: 30
+        name: kong
+        ports:
+        - containerPort: 8000
+          name: proxy
+        - containerPort: 8001
+          name: admin
+        readinessProbe:
+          httpGet:
+            path: /status
+            port: 8001
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /status
+            port: 8001
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /usr/local/kong/declarative
+          name: kong-config-rendered
+        - mountPath: /usr/local/kong/pids
+          name: kong-pids
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /usr/local/kong/logs
+          name: kong-logs
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - |
+          cp /input/kong.yml /output/kong.yml
+          sed -i "s|\${KONG_JWT_SECRET}|$KONG_JWT_SECRET|g" /output/kong.yml
+        env:
+        - name: KONG_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: KONG_JWT_SECRET
+              name: kong-secrets
+        image: busybox:1.36
+        name: substitute-secrets
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 100
+        volumeMounts:
+        - mountPath: /input
+          name: kong-config-template
+        - mountPath: /output
+          name: kong-config-rendered
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          name: staging-kong-declarative-config
+        name: kong-config-template
+      - emptyDir: {}
+        name: kong-config-rendered
+      - emptyDir: {}
+        name: kong-pids
+      - emptyDir: {}
+        name: tmp
+      - emptyDir: {}
+        name: kong-logs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: 10.4.18
+    environment: staging
+    layer: observability
+  name: staging-grafana
+  namespace: staging-observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: observability
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "3000"
+        prometheus.io/scrape: "true"
+      labels:
+        app: grafana
+        app.kubernetes.io/component: dashboard
+        app.kubernetes.io/instance: grafana
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: 10.4.18
+        environment: staging
+        layer: observability
+    spec:
+      containers:
+      - env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: admin
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: GF_ADMIN_PASSWORD
+              name: grafana-admin-secret
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        image: grafana/grafana:10.4.18
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/health
+            port: 3000
+          periodSeconds: 30
+        name: grafana
+        ports:
+        - containerPort: 3000
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /api/health
+            port: 3000
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /var/lib/grafana
+          name: grafana-data
+        - mountPath: /etc/grafana/provisioning/datasources
+          name: grafana-datasources
+        - mountPath: /etc/grafana/provisioning/dashboards
+          name: grafana-dashboards-config
+      securityContext:
+        fsGroup: 472
+        runAsGroup: 472
+        runAsNonRoot: true
+        runAsUser: 472
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: grafana-data
+        persistentVolumeClaim:
+          claimName: staging-grafana-pvc
+      - configMap:
+          name: staging-grafana-datasources
+        name: grafana-datasources
+      - configMap:
+          name: staging-grafana-dashboards-config
+        name: grafana-dashboards-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: 2.51.0
+    environment: staging
+    layer: observability
+  name: staging-prometheus
+  namespace: staging-observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: observability
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        app.kubernetes.io/component: monitoring
+        app.kubernetes.io/instance: prometheus
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: 2.51.0
+        environment: staging
+        layer: observability
+    spec:
+      containers:
+      - args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --storage.tsdb.retention.time=15d
+        image: prom/prometheus:v2.51.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          periodSeconds: 30
+        name: prometheus
+        ports:
+        - containerPort: 9090
+          name: http
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /-/ready
+            port: 9090
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: 250m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /-/ready
+            port: 9090
+          periodSeconds: 10
+        volumeMounts:
+        - mountPath: /etc/prometheus
+          name: prometheus-config
+        - mountPath: /etc/prometheus/rules
+          name: prometheus-rules
+        - mountPath: /prometheus
+          name: prometheus-data
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          name: staging-prometheus-config
+        name: prometheus-config
+      - configMap:
+          name: staging-prometheus-rules
+        name: prometheus-rules
+      - name: prometheus-data
+        persistentVolumeClaim:
+          claimName: staging-prometheus-pvc
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: security
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: 1.15.6
+    environment: staging
+    layer: security
+  name: staging-vault
+  namespace: staging-security
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: security
+  template:
+    metadata:
+      labels:
+        app: vault
+        app.kubernetes.io/component: security
+        app.kubernetes.io/instance: vault
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: vault
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: 1.15.6
+        environment: staging
+        layer: security
+    spec:
+      containers:
+      - command:
+        - vault
+        - server
+        - -config=/vault/config/vault.hcl
+        env:
+        - name: VAULT_ADDR
+          value: http://0.0.0.0:8200
+        - name: VAULT_API_ADDR
+          value: http://vault:8200
+        - name: VAULT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: VAULT_TOKEN
+              name: vault-secrets
+        image: hashicorp/vault:1.15.6
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /v1/sys/health?standbyok=true
+            port: 8200
+          periodSeconds: 30
+        name: vault
+        ports:
+        - containerPort: 8200
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /v1/sys/health
+            port: 8200
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            add:
+            - IPC_LOCK
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /v1/sys/health?standbyok=true
+            port: 8200
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /vault/data
+          name: vault-data
+        - mountPath: /vault/config
+          name: vault-config
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: vault-data
+        persistentVolumeClaim:
+          claimName: staging-vault-pvc
+      - configMap:
+          name: staging-vault-config
+        name: vault-config
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/instance: postgres
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: "16.6"
+    environment: staging
+    layer: data
+  name: staging-postgres
+  namespace: staging-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: data
+  serviceName: staging-postgres
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9187"
+        prometheus.io/scrape: "true"
+      labels:
+        app: postgres
+        app.kubernetes.io/component: database
+        app.kubernetes.io/instance: postgres
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: "16.6"
+        environment: staging
+        layer: data
+    spec:
+      containers:
+      - args:
+        - postgres
+        - -c
+        - max_connections=200
+        - -c
+        - shared_buffers=512MB
+        - -c
+        - work_mem=16MB
+        - -c
+        - effective_cache_size=1536MB
+        - -c
+        - maintenance_work_mem=256MB
+        - -c
+        - wal_level=replica
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: diffusion-secrets
+        envFrom:
+        - configMapRef:
+            name: staging-postgres-config
+        image: postgres:16.6-alpine
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - diffusion_admin
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        name: postgres
+        ports:
+        - containerPort: 5432
+          name: postgres
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - diffusion_admin
+            - -d
+            - diffusion_db
+          failureThreshold: 5
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: "2"
+            memory: 2Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - diffusion_admin
+            - -d
+            - diffusion_db
+          failureThreshold: 30
+          periodSeconds: 10
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: postgres-data
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /var/run/postgresql
+          name: postgres-run
+      - env:
+        - name: DATA_SOURCE_URI
+          value: localhost:5432/diffusion_db?sslmode=disable
+        - name: DATA_SOURCE_USER
+          value: diffusion_admin
+        - name: DATA_SOURCE_PASS
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: diffusion-secrets
+        image: prometheuscommunity/postgres-exporter:v0.15.0
+        imagePullPolicy: IfNotPresent
+        name: postgres-exporter
+        ports:
+        - containerPort: 9187
+          name: metrics
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsUser: 65534
+      securityContext:
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 70
+        runAsNonRoot: true
+        runAsUser: 70
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: staging-postgres-pvc
+      - emptyDir: {}
+        name: tmp
+      - emptyDir: {}
+        name: postgres-run
+  updateStrategy:
+    type: OnDelete
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/instance: redis
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: diffusion-platform
+    app.kubernetes.io/version: 7.4.1
+    environment: staging
+    layer: data
+  name: staging-redis
+  namespace: staging-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+      app.kubernetes.io/part-of: diffusion-platform
+      environment: staging
+      layer: data
+  serviceName: staging-redis
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9121"
+        prometheus.io/scrape: "true"
+      labels:
+        app: redis
+        app.kubernetes.io/component: cache
+        app.kubernetes.io/instance: redis
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/part-of: diffusion-platform
+        app.kubernetes.io/version: 7.4.1
+        environment: staging
+        layer: data
+    spec:
+      containers:
+      - command:
+        - sh
+        - -c
+        - |
+          redis-server \
+            --maxmemory $REDIS_MAXMEMORY \
+            --maxmemory-policy $REDIS_MAXMEMORY_POLICY \
+            --appendonly $REDIS_APPENDONLY \
+            --save 60 1000 \
+            --requirepass $REDIS_PASSWORD
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: REDIS_PASSWORD
+              name: diffusion-secrets
+        envFrom:
+        - configMapRef:
+            name: staging-redis-config
+        image: redis:7.4.1-alpine
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a $REDIS_PASSWORD ping
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        name: redis
+        ports:
+        - containerPort: 6379
+          name: redis
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a $REDIS_PASSWORD ping
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1.5Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a $REDIS_PASSWORD ping
+          failureThreshold: 30
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /data
+          name: redis-data
+        - mountPath: /tmp
+          name: tmp
+      - env:
+        - name: REDIS_ADDR
+          value: redis://localhost:6379
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: REDIS_PASSWORD
+              name: diffusion-secrets
+        image: oliver006/redis_exporter:v1.58.0
+        imagePullPolicy: IfNotPresent
+        name: redis-exporter
+        ports:
+        - containerPort: 9121
+          name: metrics
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: staging-redis-pvc
+      - emptyDir: {}
+        name: tmp
+  updateStrategy:
+    type: RollingUpdate
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/instance: postgres-backup
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: postgres-backup
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-postgres-backup
+  namespace: staging-data
+spec:
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: diffusion-platform
+        environment: staging
+        layer: data
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: backup
+            app.kubernetes.io/name: postgres-backup
+            app.kubernetes.io/part-of: diffusion-platform
+            environment: staging
+            layer: data
+        spec:
+          containers:
+          - command:
+            - /bin/sh
+            - -c
+            - |
+              DATE=$(date +%Y%m%d_%H%M%S)
+              echo "Starting PostgreSQL backup: diffusion_db_backup_$DATE.sql.gz"
+              export PGPASSWORD=$POSTGRES_PASSWORD
+              pg_dump -h postgres -U diffusion_admin -d diffusion_db | gzip > /tmp/diffusion_db_backup_$DATE.sql.gz
+              cp /tmp/diffusion_db_backup_$DATE.sql.gz /backups/diffusion_db_backup_$DATE.sql.gz
+              echo "Backup completed successfully."
+              find /backups -name "diffusion_db_backup_*.sql.gz" -type f -mtime +7 -delete
+            env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: POSTGRES_PASSWORD
+                  name: diffusion-secrets
+            image: postgres:16.6-alpine
+            imagePullPolicy: IfNotPresent
+            name: pg-backup
+            resources:
+              limits:
+                memory: 512Mi
+              requests:
+                cpu: 100m
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /backups
+              name: backup-storage
+            - mountPath: /tmp
+              name: tmp
+          restartPolicy: OnFailure
+          securityContext:
+            fsGroup: 70
+            runAsGroup: 70
+            runAsNonRoot: true
+            runAsUser: 70
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: staging-backups-pvc
+          - emptyDir: {}
+            name: tmp
+  schedule: 0 3 * * *
+  successfulJobsHistoryLimit: 3
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/instance: redis-backup
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: redis-backup
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-redis-backup
+  namespace: staging-data
+spec:
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: diffusion-platform
+        environment: staging
+        layer: data
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: backup
+            app.kubernetes.io/name: redis-backup
+            app.kubernetes.io/part-of: diffusion-platform
+            environment: staging
+            layer: data
+        spec:
+          containers:
+          - command:
+            - /bin/sh
+            - -c
+            - |
+              DATE=$(date +%Y%m%d_%H%M%S)
+              echo "Triggering Redis BGSAVE via redis-cli"
+              redis-cli -h redis -a $REDIS_PASSWORD BGSAVE
+              sleep 10
+              # Dans Redis.yaml, le PVC redis-data est mont├⌐.
+              # Le cronjob d├⌐clenche BGSAVE ΓÇö la persistance AOF/RDB s'en charge dans son propre volume.
+              echo "Redis save triggered. Note: this only triggers BGSAVE on the local PV. Shipping the RDB to object storage (OVH Object Storage planned) is handled by a separate job ΓÇö TODO."
+            env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: REDIS_PASSWORD
+                  name: diffusion-secrets
+            image: redis:7.4.1-alpine
+            imagePullPolicy: IfNotPresent
+            name: redis-backup
+            resources:
+              limits:
+                memory: 512Mi
+              requests:
+                cpu: 100m
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+          restartPolicy: OnFailure
+          securityContext:
+            fsGroup: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+          - emptyDir: {}
+            name: tmp
+  schedule: 30 3 * * *
+  successfulJobsHistoryLimit: 3
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-n8n-worker-hpa
+  namespace: staging-app
+spec:
+  maxReplicas: 10
+  metrics:
+  - resource:
+      name: cpu
+      target:
+        averageUtilization: 70
+        type: Utilization
+    type: Resource
+  minReplicas: 3
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: staging-n8n-worker
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-flyway-migration
+  namespace: staging-data
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: diffusion-platform
+        environment: staging
+        layer: data
+    spec:
+      containers:
+      - command:
+        - flyway
+        - migrate
+        env:
+        - name: FLYWAY_URL
+          value: jdbc:postgresql://postgres:5432/diffusion_db
+        - name: FLYWAY_USER
+          value: diffusion_admin
+        - name: FLYWAY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: diffusion-secrets
+        - name: FLYWAY_LOCATIONS
+          value: filesystem:/flyway/sql
+        - name: FLYWAY_BASELINE_ON_MIGRATE
+          value: "true"
+        image: flyway/flyway:10-alpine
+        name: flyway
+        volumeMounts:
+        - mountPath: /flyway/sql
+          name: flyway-sql
+      restartPolicy: Never
+      volumes:
+      - configMap:
+          name: staging-flyway-migrations
+        name: flyway-sql
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  labels:
+    environment: staging
+  name: staging-aws-secrets-manager
+  namespace: staging-external-secrets
+spec:
+  provider:
+    aws:
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: external-secrets
+            namespace: external-secrets
+      region: eu-west-3
+      service: SecretsManager
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: app
+  name: staging-external-secret-app
+  namespace: staging-app
+spec:
+  data:
+  - remoteRef:
+      key: diffusion/staging/database
+      property: POSTGRES_PASSWORD
+    secretKey: POSTGRES_PASSWORD
+  - remoteRef:
+      key: diffusion/staging/cache
+      property: REDIS_PASSWORD
+    secretKey: REDIS_PASSWORD
+  - remoteRef:
+      key: diffusion/staging/n8n
+      property: N8N_ENCRYPTION_KEY
+    secretKey: N8N_ENCRYPTION_KEY
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: diffusion-secrets
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-external-secret-data
+  namespace: staging-data
+spec:
+  data:
+  - remoteRef:
+      key: diffusion/staging/database
+      property: POSTGRES_PASSWORD
+    secretKey: POSTGRES_PASSWORD
+  - remoteRef:
+      key: diffusion/staging/cache
+      property: REDIS_PASSWORD
+    secretKey: REDIS_PASSWORD
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: diffusion-secrets
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: data
+  name: staging-external-secret-pgadmin
+  namespace: staging-data
+spec:
+  data:
+  - remoteRef:
+      key: diffusion/staging/pgadmin
+      property: PGADMIN_EMAIL
+    secretKey: PGADMIN_EMAIL
+  - remoteRef:
+      key: diffusion/staging/pgadmin
+      property: PGADMIN_PASSWORD
+    secretKey: PGADMIN_PASSWORD
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: pgadmin-secrets
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  name: staging-external-secret-gateway
+  namespace: staging-gateway
+spec:
+  data:
+  - remoteRef:
+      key: diffusion/staging/gateway
+      property: KONG_JWT_SECRET
+    secretKey: KONG_JWT_SECRET
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: kong-secrets
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: observability
+  name: staging-external-secret-grafana
+  namespace: staging-observability
+spec:
+  data:
+  - remoteRef:
+      key: diffusion/staging/grafana
+      property: GF_ADMIN_PASSWORD
+    secretKey: GF_ADMIN_PASSWORD
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: grafana-admin-secret
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: security
+  name: staging-external-secret-vault
+  namespace: staging-security
+spec:
+  data:
+  - remoteRef:
+      key: diffusion/staging/vault
+      property: VAULT_TOKEN
+    secretKey: VAULT_TOKEN
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: vault-secrets
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 64m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  labels:
+    app.kubernetes.io/part-of: diffusion-platform
+    environment: staging
+    layer: gateway
+  name: staging-diffusion-ingress
+  namespace: staging-gateway
+spec:
+  rules:
+  - host: staging.diffusion.iaweb.dev
+    http:
+      paths:
+      - backend:
+          service:
+            name: staging-kong-proxy
+            port:
+              name: proxy
+        path: /webhook/
+        pathType: Prefix
+      - backend:
+          service:
+            name: staging-n8n-main
+            port:
+              name: http
+        path: /
+        pathType: Prefix
